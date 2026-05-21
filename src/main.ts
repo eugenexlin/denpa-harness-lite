@@ -1,18 +1,17 @@
 #!/usr/bin/env bun
 import { createConfigManager, getHomeDir } from "./config/manager";
 import { createStatsDB } from "./stats/db";
-import { createScreenManager } from "./terminal/screen";
-import { createInputManager } from "./terminal/input";
 import { createAPIClient } from "./api/client";
 import { createSession } from "./agent/session";
 import { createSubagentManager } from "./agent/subagent-manager";
 import { createDefaultRegistry } from "./agent/tool/registry";
-import { createREPL } from "./repl/repl";
+import { createRepl } from "./repl/repl";
 import { runCLI } from "./cli/cli";
 
 const getProjectRoot = (): string => process.cwd();
 
 const main = (): void => {
+  process.stdin.setRawMode(true);
   const args = process.argv.slice(2);
   const projectRoot = getProjectRoot();
 
@@ -74,15 +73,11 @@ const main = (): void => {
   );
 
   // Init terminal
-  const screen = createScreenManager();
-  const input = createInputManager(screen);
 
   if (mode === "cli") {
     runCLI(message, client, session, statsDB, toolRegistry.getDefinitions());
   } else {
-    const repl = createREPL(
-      screen,
-      input,
+    const repl = createRepl(
       client,
       session,
       agentManager,

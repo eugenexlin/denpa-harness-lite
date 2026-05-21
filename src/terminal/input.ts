@@ -1,10 +1,14 @@
-import type { ScreenManager } from "./screen";
-import { outputBuffer, FULL_WIDTH_RULE } from "../repl/output-buffer";
-import { gray } from "./ansi";
+import { ANSI_STYLE } from "./ansi";
+
+export interface InputManagerProps {
+  onUserInputUpdate: (input: string) => void;
+}
 
 export interface InputManager {
   start: () => void;
   stop: () => void;
+  supressInput: () => void; // only use for stuff like probing the cursor position in stdout/in
+  unsupressInput: () => void;
   submit: () => Promise<string>;
   cancel: () => void;
   getBuffer: () => string;
@@ -13,33 +17,45 @@ export interface InputManager {
   wasCancelled: () => boolean;
 }
 
-export const createInputManager = (screen: ScreenManager): InputManager => {
+export const createInputManager = (props: InputManagerProps): InputManager => {
+  const { onUserInputUpdate: onUserInputChange } = props;
   let buffer = "";
   let cursor = 0;
   let escapeSequence = "";
   let resolveFn: ((value: string) => void) | null = null;
   let submitted = false;
-  let cancelled = false;
-  let rawMode = false;
+  let isCancelled = false;
+  let isStarted = false;
+  let isInputSupressed = false;
 
-  const flushPanel = (): void => {
-    const panel = [];
-    panel.push(FULL_WIDTH_RULE);
-    panel.push(`${gray("> ")}${buffer}`);
-    panel.push(FULL_WIDTH_RULE);
-    outputBuffer.setPanel(panel);
+  let cursorInterval: NodeJS.Timeout;
+  let isCursorBlinkVisible = true;
+
+  const handleUpdateUserInput = (): void => {
+    let output = buffer;
+    if (isCursorBlinkVisible) {
+      if (cursor >= output.length) {
+        output = output.padEnd(cursor + 1, " ");
+      }
+    }
+    const formattedInput = isCursorBlinkVisible
+      ? output.slice(0, cursor) +
+        ANSI_STYLE.reverse +
+        output.charAt(cursor) +
+        ANSI_STYLE.reset +
+        output.slice(cursor + 1)
+      : output;
+    onUserInputChange(formattedInput);
   };
 
   const insertChar = (char: string): void => {
     buffer = buffer.slice(0, cursor) + char + buffer.slice(cursor);
     cursor++;
-    screen.setInputCol(cursor);
   };
 
   const deleteCharForward = (): void => {
     if (cursor < buffer.length) {
       buffer = buffer.slice(0, cursor) + buffer.slice(cursor + 1);
-      screen.setInputCol(cursor);
     }
   };
 
@@ -47,7 +63,6 @@ export const createInputManager = (screen: ScreenManager): InputManager => {
     if (cursor > 0) {
       cursor--;
       buffer = buffer.slice(0, cursor) + buffer.slice(cursor + 1);
-      screen.setInputCol(cursor);
     }
   };
 
@@ -58,31 +73,26 @@ export const createInputManager = (screen: ScreenManager): InputManager => {
     while (pos > 0 && buffer[pos - 1] !== " ") pos--;
     buffer = buffer.slice(0, pos) + buffer.slice(cursor);
     cursor = pos;
-    screen.setInputCol(cursor);
   };
 
   const moveCursorLeft = (): void => {
     if (cursor > 0) {
       cursor--;
-      screen.setInputCol(cursor);
     }
   };
 
   const moveCursorRight = (): void => {
     if (cursor < buffer.length) {
       cursor++;
-      screen.setInputCol(cursor);
     }
   };
 
   const moveCursorToStart = (): void => {
     cursor = 0;
-    screen.setInputCol(0);
   };
 
   const moveCursorToEnd = (): void => {
     cursor = buffer.length;
-    screen.setInputCol(cursor);
   };
 
   const handleEscapeSequence = (char: string): void => {
@@ -90,28 +100,28 @@ export const createInputManager = (screen: ScreenManager): InputManager => {
 
     if (escapeSequence === "\x1b[A") {
       moveCursorLeft();
-      flushPanel();
+      handleUpdateUserInput();
       escapeSequence = "";
       return;
     }
 
     if (escapeSequence === "\x1b[B") {
       moveCursorRight();
-      flushPanel();
+      handleUpdateUserInput();
       escapeSequence = "";
       return;
     }
 
     if (escapeSequence === "\x1b[C") {
       moveCursorRight();
-      flushPanel();
+      handleUpdateUserInput();
       escapeSequence = "";
       return;
     }
 
     if (escapeSequence === "\x1b[D") {
       moveCursorLeft();
-      flushPanel();
+      handleUpdateUserInput();
       escapeSequence = "";
       return;
     }
@@ -123,21 +133,21 @@ export const createInputManager = (screen: ScreenManager): InputManager => {
 
     if (escapeSequence === "\x1b[3~") {
       deleteCharForward();
-      flushPanel();
+      handleUpdateUserInput();
       escapeSequence = "";
       return;
     }
 
     if (escapeSequence === "\x1b[1~") {
       moveCursorToStart();
-      flushPanel();
+      handleUpdateUserInput();
       escapeSequence = "";
       return;
     }
 
     if (escapeSequence === "\x1b[4~") {
       moveCursorToEnd();
-      flushPanel();
+      handleUpdateUserInput();
       escapeSequence = "";
       return;
     }
@@ -163,8 +173,16 @@ export const createInputManager = (screen: ScreenManager): InputManager => {
   };
 
   const handleData = (chunk: Buffer | string): void => {
+    if (isInputSupressed) return;
     const str = typeof chunk === "string" ? chunk : chunk.toString("utf-8");
     const chars = str.split("");
+
+    cursorInterval && clearInterval(cursorInterval);
+    isCursorBlinkVisible = true;
+    cursorInterval = setInterval(() => {
+      isCursorBlinkVisible = !isCursorBlinkVisible;
+      handleUpdateUserInput();
+    }, 500);
 
     for (const char of chars) {
       if (escapeSequence) {
@@ -173,8 +191,8 @@ export const createInputManager = (screen: ScreenManager): InputManager => {
       }
 
       if (char === "\x03") {
-        cancelled = true;
-        flushPanel();
+        isCancelled = true;
+        handleUpdateUserInput();
         if (resolveFn) {
           const fn = resolveFn;
           resolveFn = null;
@@ -185,8 +203,8 @@ export const createInputManager = (screen: ScreenManager): InputManager => {
 
       if (char === "\x04") {
         if (buffer.length === 0) {
-          cancelled = true;
-          flushPanel();
+          isCancelled = true;
+          handleUpdateUserInput();
           if (resolveFn) {
             const fn = resolveFn;
             resolveFn = null;
@@ -195,13 +213,13 @@ export const createInputManager = (screen: ScreenManager): InputManager => {
           return;
         }
         deleteCharForward();
-        flushPanel();
+        handleUpdateUserInput();
         continue;
       }
 
       if (char === "\r" || char === "\n") {
         submitted = true;
-        flushPanel();
+        handleUpdateUserInput();
         if (resolveFn) {
           const fn = resolveFn;
           resolveFn = null;
@@ -212,33 +230,32 @@ export const createInputManager = (screen: ScreenManager): InputManager => {
 
       if (char === "\x7f" || char === "\x08") {
         deleteBeforeCursor();
-        flushPanel();
+        handleUpdateUserInput();
         continue;
       }
 
       if (char === "\x15") {
         buffer = "";
         cursor = 0;
-        screen.setInputCol(0);
-        flushPanel();
+        handleUpdateUserInput();
         continue;
       }
 
       if (char === "\x17") {
         deleteWord();
-        flushPanel();
+        handleUpdateUserInput();
         continue;
       }
 
       if (char === "\x01") {
         moveCursorToStart();
-        flushPanel();
+        handleUpdateUserInput();
         continue;
       }
 
       if (char === "\x05") {
         moveCursorToEnd();
-        flushPanel();
+        handleUpdateUserInput();
         continue;
       }
 
@@ -249,35 +266,47 @@ export const createInputManager = (screen: ScreenManager): InputManager => {
 
       if (char.length === 1 && char >= " ") {
         insertChar(char);
-        flushPanel();
+        handleUpdateUserInput();
       }
     }
   };
 
   return {
     start: (): void => {
-      if (rawMode) return;
-      process.stdin.setRawMode(true);
+      if (isStarted) return;
       process.stdin.resume();
       process.stdin.setEncoding("utf-8");
-      rawMode = true;
+      cursorInterval = setInterval(() => {
+        isCursorBlinkVisible = !isCursorBlinkVisible;
+        handleUpdateUserInput();
+      }, 500);
+
+      isStarted = true;
       process.stdin.on("data", handleData);
     },
 
     stop: (): void => {
-      if (!rawMode) return;
-      process.stdin.setRawMode(false);
+      if (!isStarted) return;
       process.stdin.pause();
       process.stdin.setEncoding("ascii");
       process.stdin.off("data", handleData);
-      rawMode = false;
+      cursorInterval;
+      isStarted = false;
+    },
+
+    supressInput: (): void => {
+      isInputSupressed = true;
+    },
+
+    unsupressInput: (): void => {
+      isInputSupressed = false;
     },
 
     submit: (): Promise<string> => {
       return new Promise((resolve) => {
         resolveFn = resolve;
         submitted = false;
-        cancelled = false;
+        isCancelled = false;
       });
     },
 
@@ -285,9 +314,8 @@ export const createInputManager = (screen: ScreenManager): InputManager => {
       buffer = "";
       cursor = 0;
       submitted = false;
-      cancelled = true;
-      screen.setInputCol(0);
-      flushPanel();
+      isCancelled = true;
+      handleUpdateUserInput();
     },
 
     getBuffer: (): string => buffer,
@@ -296,9 +324,8 @@ export const createInputManager = (screen: ScreenManager): InputManager => {
 
     setCursor: (pos: number): void => {
       cursor = Math.max(0, Math.min(pos, buffer.length));
-      screen.setInputCol(cursor);
     },
 
-    wasCancelled: (): boolean => cancelled,
+    wasCancelled: (): boolean => isCancelled,
   };
 };

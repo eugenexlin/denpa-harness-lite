@@ -1,5 +1,4 @@
-import type { ScreenManager } from "../terminal/screen";
-import type { InputManager } from "../terminal/input";
+import { createInputManager, type InputManager } from "../terminal/input";
 import type { APIClient } from "../api/client";
 import type { Session } from "../agent/session";
 import type { SubagentManager } from "../agent/subagent-manager";
@@ -17,7 +16,7 @@ import {
   spinner,
   ANSI_STYLE,
 } from "../terminal/ansi";
-import { outputBuffer } from "./output-buffer";
+import { FULL_WIDTH_RULE, outputBuffer, type PanelLine } from "./output-buffer";
 
 export type PanelState =
   | { type: "idle" }
@@ -33,23 +32,55 @@ export type PanelState =
     }
   | { type: "error"; message: string };
 
-export interface REPL {
+export interface Repl {
   run: () => Promise<void>;
   stop: () => void;
 }
 
-export const createREPL = (
-  screen: ScreenManager,
-  input: InputManager,
+export const createRepl = (
   client: APIClient,
   session: Session,
   agentManager: SubagentManager,
   toolRegistry: ToolRegistry,
   statsDB: StatsDB,
-): REPL => {
+): Repl => {
+  let userInput: string = "";
+
+  const rerenderPanel = (): void => {
+    if (userInput.startsWith("/") && !userInput.includes(" ")) {
+      outputBuffer.setPanel(renderSlashMenu(userInput));
+      return;
+    }
+
+    outputBuffer.setPanel([
+      FULL_WIDTH_RULE,
+      `${gray("> ")}${userInput}`,
+      FULL_WIDTH_RULE,
+    ]);
+  };
+
+  const inputManager = createInputManager({
+    onUserInputUpdate: (value: string): void => {
+      userInput = value;
+      rerenderPanel();
+    },
+  });
+
   let panelState: PanelState = { type: "idle" };
   let running = false;
   const slashCommands = new Map<string, (args: string) => Promise<string>>();
+  const slashCommandDescriptions = new Map<string, string>([
+    ["model", "<name>  - Switch model"],
+    ["clear", "         - Clear session history"],
+    ["agent", "<prompt> - Spawn subagent"],
+    ["agents", "        - List agents"],
+    ["config", "        - Show current config"],
+    ["stats", "         - Show session stats"],
+    ["tools", "         - List available tools"],
+    ["test", "          - Output test lines"],
+    ["exit", "          - Exit the REPL"],
+    ["help", "          - Show this help"],
+  ]);
 
   const formatDuration = (ms: number): string => {
     const seconds = Math.floor(ms / 1000);
@@ -64,6 +95,28 @@ export const createREPL = (
     panelState = state;
   };
 
+  const renderSlashMenu = (fullBuffer: string): PanelLine[] => {
+    const lines: PanelLine[] = [];
+    lines.push(FULL_WIDTH_RULE);
+    lines.push(`${gray("> ")}${fullBuffer}`);
+    lines.push(FULL_WIDTH_RULE);
+
+    const filter = fullBuffer.slice(1);
+    const filtered = Array.from(slashCommands.entries())
+      .filter(
+        ([cmd]) =>
+          !filter || cmd.toLowerCase().startsWith(filter.toLowerCase()),
+      )
+      .slice(0, 10);
+
+    for (const [cmd] of filtered) {
+      const desc = slashCommandDescriptions.get(cmd) ?? "";
+      lines.push(`  /${cmd}${desc}`);
+    }
+
+    return lines;
+  };
+
   const registerSlashCommands = (): void => {
     slashCommands.set("model", async (args) => {
       if (!args.trim()) {
@@ -75,7 +128,7 @@ export const createREPL = (
 
     slashCommands.set("clear", async () => {
       session.clear();
-      screen.clearBuffer();
+      outputBuffer.scroll("\x1b[H\x1b[J");
       return "Session cleared.";
     });
 
@@ -117,6 +170,13 @@ export const createREPL = (
       return ["test1", "test2", "test3", "test4", "test5"].join("\n");
     });
 
+    slashCommands.set("agent", async (args) => {
+      if (!args.trim()) {
+        return "Usage: /agent <prompt>";
+      }
+      return await handleAgent(args);
+    });
+
     slashCommands.set("help", async () => {
       return [
         "Slash commands:",
@@ -140,16 +200,17 @@ export const createREPL = (
         const elapsed = Date.now() - panelState.startTime;
         const line = `${panelState.model} | ${formatDuration(elapsed)} | tokens: -/-`;
         outputBuffer.setPanel([
+          FULL_WIDTH_RULE,
           `${gray("> submitted")}`,
           gray(line),
-          { type: "full-width-rule" },
+          FULL_WIDTH_RULE,
         ]);
         break;
       }
 
       case "agent-running": {
-        const lines: (string | { type: "full-width-rule" })[] = [];
-        lines.push({ type: "full-width-rule" });
+        const lines: PanelLine[] = [];
+        lines.push(FULL_WIDTH_RULE);
         lines.push(
           ...panelState.agents.map(
             (a) =>
@@ -157,29 +218,30 @@ export const createREPL = (
           ),
         );
         lines.push(gray("Ctrl+C to cancel"));
-        lines.push({ type: "full-width-rule" });
+        lines.push(FULL_WIDTH_RULE);
         outputBuffer.setPanel(lines);
         break;
       }
 
       case "agent-complete": {
-        const lines: (string | { type: "full-width-rule" })[] = [];
-        lines.push({ type: "full-width-rule" });
+        const lines: PanelLine[] = [];
+        lines.push(FULL_WIDTH_RULE);
         lines.push(
           ...panelState.results.map(
             (r) =>
               `[agent-${r.id}] done (${formatDuration(r.duration)}) | ${r.content.slice(0, 60)}${r.content.length > 60 ? "..." : ""}`,
           ),
         );
-        lines.push({ type: "full-width-rule" });
+        lines.push(FULL_WIDTH_RULE);
         outputBuffer.setPanel(lines);
         break;
       }
 
       case "error":
         outputBuffer.setPanel([
+          FULL_WIDTH_RULE,
           red(`✗ ${panelState.message}`),
-          { type: "full-width-rule" },
+          FULL_WIDTH_RULE,
         ]);
         break;
     }
@@ -199,10 +261,6 @@ export const createREPL = (
       return `Unknown command: /${cmd}. Type /help for available commands.`;
     }
 
-    if (input.startsWith("/agent ")) {
-      return handleAgent(input.slice(7));
-    }
-
     return handleMessage(input);
   };
 
@@ -213,7 +271,6 @@ export const createREPL = (
       model: client.getModel(),
       startTime: Date.now(),
     });
-    updatePanel();
 
     let fullResponse = "";
     const startTime = Date.now();
@@ -249,7 +306,6 @@ export const createREPL = (
       type: "agent-running",
       agents: [{ id: agent.id, status: "running", duration: 0 }],
     });
-    updatePanel();
 
     const result = await agent.run();
 
@@ -265,7 +321,6 @@ export const createREPL = (
         },
       ],
     });
-    updatePanel();
 
     statsDB.recordRequest(
       result.stats.durationMs,
@@ -282,8 +337,8 @@ export const createREPL = (
     run: async (): Promise<void> => {
       running = true;
 
-      await outputBuffer.init();
-      input.start();
+      await outputBuffer.init(inputManager);
+      inputManager.start();
 
       const model = client.getModel();
       outputBuffer.scroll(bold("denpa") + ` — ${gray(`model: ${model}`)}`);
@@ -296,8 +351,8 @@ export const createREPL = (
 
       while (running) {
         try {
-          const userInput = await input.submit();
-          if (input.wasCancelled()) {
+          const userInput = await inputManager.submit();
+          if (inputManager.wasCancelled()) {
             continue;
           }
 
@@ -312,18 +367,17 @@ export const createREPL = (
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           setPanelState({ type: "error", message });
-          updatePanel();
           outputBuffer.scroll(red(`✗ ${message}`));
           outputBuffer.scroll("\n");
         }
       }
 
-      input.stop();
+      inputManager.stop();
     },
 
     stop: (): void => {
       running = false;
-      input.stop();
+      inputManager.stop();
       agentManager.abortAll();
     },
   };
