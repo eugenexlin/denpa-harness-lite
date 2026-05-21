@@ -1,0 +1,4 @@
+.denpa/
+node_modules/
+*.log
+dist/
