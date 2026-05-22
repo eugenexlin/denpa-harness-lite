@@ -106,3 +106,6 @@ export const box = {
 };
 
 export const separator = (width: number, char = "─"): string => char.repeat(width);
+
+export const stripAnsi = (text: string): string =>
+  text.replace(/\x1b\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]/g, "");

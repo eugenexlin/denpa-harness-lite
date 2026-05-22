@@ -1,7 +1,7 @@
 import { ANSI_STYLE } from "./ansi";
 
 export interface InputManagerProps {
-  onUserInputUpdate: (input: string) => void;
+  onUserInputUpdate: (input: string, render: string) => void;
 }
 
 export interface InputManager {
@@ -18,7 +18,7 @@ export interface InputManager {
 }
 
 export const createInputManager = (props: InputManagerProps): InputManager => {
-  const { onUserInputUpdate: onUserInputChange } = props;
+  const { onUserInputUpdate } = props;
   let buffer = "";
   let cursor = 0;
   let escapeSequence = "";
@@ -33,19 +33,15 @@ export const createInputManager = (props: InputManagerProps): InputManager => {
 
   const handleUpdateUserInput = (): void => {
     let output = buffer;
-    if (isCursorBlinkVisible) {
-      if (cursor >= output.length) {
-        output = output.padEnd(cursor + 1, " ");
-      }
-    }
+    let padOutput = output.padEnd(cursor + 1, " ");
     const formattedInput = isCursorBlinkVisible
-      ? output.slice(0, cursor) +
+      ? padOutput.slice(0, cursor) +
         ANSI_STYLE.reverse +
-        output.charAt(cursor) +
+        padOutput.charAt(cursor) +
         ANSI_STYLE.reset +
-        output.slice(cursor + 1)
-      : output;
-    onUserInputChange(formattedInput);
+        padOutput.slice(cursor + 1)
+      : padOutput;
+    onUserInputUpdate(output, formattedInput);
   };
 
   const insertChar = (char: string): void => {

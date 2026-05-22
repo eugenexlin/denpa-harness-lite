@@ -17,6 +17,7 @@ import {
   ANSI_STYLE,
   clearLine,
   clearFromCursor,
+  stripAnsi,
 } from "../terminal/ansi";
 import { FULL_WIDTH_RULE, outputBuffer, type PanelLine } from "./output-buffer";
 
@@ -47,6 +48,7 @@ export const createRepl = (
   statsDB: StatsDB,
 ): Repl => {
   let userInput: string = "";
+  let userInputFormatted: string = "";
 
   const handleExit = (): void => {
     process.stdout.write(clearFromCursor());
@@ -58,20 +60,21 @@ export const createRepl = (
 
   const rerenderPanel = (): void => {
     if (userInput.startsWith("/")) {
-      outputBuffer.setPanel(renderSlashMenu(userInput));
+      outputBuffer.setPanel(renderSlashMenu());
       return;
     }
 
     outputBuffer.setPanel([
       FULL_WIDTH_RULE,
-      `${gray("> ")}${userInput}`,
+      `${gray("> ")}${userInputFormatted}`,
       FULL_WIDTH_RULE,
     ]);
   };
 
   const inputManager = createInputManager({
-    onUserInputUpdate: (value: string): void => {
+    onUserInputUpdate: (value: string, formattedValue: string): void => {
       userInput = value;
+      userInputFormatted = formattedValue;
       rerenderPanel();
     },
   });
@@ -105,13 +108,13 @@ export const createRepl = (
     panelState = state;
   };
 
-  const renderSlashMenu = (fullBuffer: string): PanelLine[] => {
+  const renderSlashMenu = (): PanelLine[] => {
     const lines: PanelLine[] = [];
     lines.push(FULL_WIDTH_RULE);
-    lines.push(`${gray("> ")}${fullBuffer}`);
+    lines.push(`${gray("> ")}${userInputFormatted}`);
     lines.push(FULL_WIDTH_RULE);
 
-    const filter = fullBuffer.slice(1);
+    const filter = userInput.slice(1);
     const filtered = Array.from(slashCommands.entries())
       .filter(
         ([cmd]) =>

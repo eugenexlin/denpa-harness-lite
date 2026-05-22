@@ -3,6 +3,7 @@ import {
   ESC,
   restoreCursor,
   saveCursor,
+  stripAnsi,
 } from "../terminal/ansi";
 import type { InputManager } from "../terminal/input";
 
@@ -26,13 +27,28 @@ const createOutputBuffer = (): OutputBuffer => {
   let initialized = false;
   let lastResolvedPanel: string[] = [];
   let tabWidth = 8;
+  let resizeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let supressPanel: boolean = false;
 
   const handleResize = async (inputManager: InputManager): Promise<void> => {
     inputManager.supressInput();
-    process.stdout.write(`${ESC}[J`);
-    await queryCursorRow();
-    inputManager.unsupressInput();
-    scheduleFlush();
+    supressPanel = true;
+
+    if (resizeDebounceTimer) {
+      clearTimeout(resizeDebounceTimer);
+    }
+
+    resizeDebounceTimer = setTimeout(async () => {
+      try {
+        resizeDebounceTimer = null;
+        process.stdout.write(`${ESC}[J`);
+        await queryCursorRow();
+      } finally {
+        inputManager.unsupressInput();
+        supressPanel = false;
+        scheduleFlush();
+      }
+    }, 100);
   };
 
   const queryCursorRow = (): Promise<void> => {
@@ -47,7 +63,7 @@ const createOutputBuffer = (): OutputBuffer => {
         const match = buffer.match(/\[(\d+);(\d+)R/);
         if (match) {
           clearTimeout(timeout);
-          activeRow =  parseInt(match[1]!, 10);
+          activeRow = parseInt(match[1]!, 10);
           process.stdin.off("data", onData);
           resolve();
         }
@@ -100,10 +116,7 @@ const createOutputBuffer = (): OutputBuffer => {
   };
 
   const countVisualRows = (text: string, cols: number): number => {
-    const stripped = text.replace(
-      /\x1b\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]/g,
-      "",
-    );
+    const stripped = stripAnsi(text)
     let rows = 0;
     let col = colPos;
     for (const char of stripped) {
@@ -173,7 +186,9 @@ const createOutputBuffer = (): OutputBuffer => {
     const contentBottom = totalRows - panelHeight;
     out += `${ESC}[1;${Math.max(1, contentBottom)}H${ESC}[${activeRow};${colPos + 1}H`;
 
-    out += buildPanel(panelFlush);
+    if (!supressPanel) {
+      out += buildPanel(panelFlush);
+    }
 
     process.stdout.write(out, "utf-8");
   };
