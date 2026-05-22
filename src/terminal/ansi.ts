@@ -14,10 +14,12 @@ export const moveBack = (n = 1): string => `${ESC}[${n}D`;
 // Clear
 export const clearLine = (dir = 0): string => {
   // 0 = end, 1 = start, 2 = all
+  return `${ESC}[${dir}K`;
+};
+export const clearScreen = (dir = 0): string => {
+  // 0 = end, 1 = start, 2 = all
   return `${ESC}[${dir}J`;
 };
-
-export const clearScreen = (): string => `${ESC}[2J`;
 
 export const clearFromCursor = (): string => `${ESC}[J`;
 

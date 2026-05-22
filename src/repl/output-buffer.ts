@@ -1,4 +1,9 @@
-import { ESC } from "../terminal/ansi";
+import {
+  clearFromCursor,
+  ESC,
+  restoreCursor,
+  saveCursor,
+} from "../terminal/ansi";
 import type { InputManager } from "../terminal/input";
 
 export type PanelToken = { type: "full-width-rule" };
@@ -99,11 +104,11 @@ const createOutputBuffer = (): OutputBuffer => {
   };
 
   const buildPanel = (panelFlush: string[]): string => {
-    let out = `${ESC}[7`;
+    let out = saveCursor();
     panelFlush.forEach((line, idx) => {
       out += `${ESC}[${activeRow + idx + 1};1H${ESC}[0m${ESC}[2K${line}`;
     });
-    out += `${ESC}[8`;
+    out += restoreCursor();
     return out;
   };
 
@@ -125,7 +130,7 @@ const createOutputBuffer = (): OutputBuffer => {
     const totalRows = process.stdout.rows || 24;
     const activeRowLimit = totalRows - newPanelHeight;
 
-    let out = `${ESC}[J`;
+    let out = clearFromCursor();
 
     if (scrollBufferFlush) {
       const cols = process.stdout.columns || 80;
@@ -137,9 +142,9 @@ const createOutputBuffer = (): OutputBuffer => {
 
     if (activeRow + newPanelHeight > totalRows) {
       const delta = activeRow + newPanelHeight - totalRows;
-      out += `${ESC}[7${ESC}[1;${Math.max(1, activeRow)}H${ESC}[${activeRow};1H`;
+      out += `${saveCursor()}${ESC}[1;${Math.max(1, activeRow)}H${ESC}[${activeRow};1H`;
       for (let i = 0; i < delta; i++) out += `\n`;
-      out += `${ESC}[8`;
+      out += `${restoreCursor()}`;
       activeRow = Math.max(1, activeRow - delta);
     }
 

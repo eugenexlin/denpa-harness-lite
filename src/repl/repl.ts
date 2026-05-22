@@ -15,6 +15,8 @@ import {
   separator,
   spinner,
   ANSI_STYLE,
+  clearLine,
+  clearFromCursor,
 } from "../terminal/ansi";
 import { FULL_WIDTH_RULE, outputBuffer, type PanelLine } from "./output-buffer";
 
@@ -46,8 +48,16 @@ export const createRepl = (
 ): Repl => {
   let userInput: string = "";
 
+  const handleExit = (): void => {
+    process.stdout.write(clearFromCursor());
+    running = false;
+    inputManager.stop();
+    agentManager.abortAll();
+    process.exit(0);
+  };
+
   const rerenderPanel = (): void => {
-    if (userInput.startsWith("/") && !userInput.includes(" ")) {
+    if (userInput.startsWith("/")) {
       outputBuffer.setPanel(renderSlashMenu(userInput));
       return;
     }
@@ -128,7 +138,6 @@ export const createRepl = (
 
     slashCommands.set("clear", async () => {
       session.clear();
-      outputBuffer.scroll("\x1b[H\x1b[J");
       return "Session cleared.";
     });
 
@@ -162,7 +171,7 @@ export const createRepl = (
     });
 
     slashCommands.set("exit", async () => {
-      process.exit(0);
+      handleExit();
       return "";
     });
 
@@ -376,9 +385,7 @@ export const createRepl = (
     },
 
     stop: (): void => {
-      running = false;
-      inputManager.stop();
-      agentManager.abortAll();
+      handleExit();
     },
   };
 };
