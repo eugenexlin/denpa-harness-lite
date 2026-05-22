@@ -10,28 +10,6 @@ export type PanelToken = { type: "full-width-rule" };
 export type PanelLine = string | PanelToken;
 export const FULL_WIDTH_RULE: PanelToken = { type: "full-width-rule" };
 
-const queryCursorRow = (): Promise<number> => {
-  return new Promise((resolve) => {
-    let buffer = "";
-    const timeout = setTimeout(() => {
-      process.stdin.off("data", onData);
-      resolve(1);
-    }, 500);
-    const onData = (data: Buffer) => {
-      buffer += data.toString();
-      const match = buffer.match(/\[(\d+);(\d+)R/);
-      if (match) {
-        clearTimeout(timeout);
-        const row = parseInt(match[1]!, 10);
-        process.stdin.off("data", onData);
-        resolve(row);
-      }
-    };
-    process.stdin.on("data", onData);
-    process.stdout.write(`${ESC}[6n`);
-  });
-};
-
 export interface OutputBuffer {
   init: (inputManager: InputManager) => Promise<void>;
   setPanel: (lines: PanelLine[]) => void;
@@ -47,18 +25,61 @@ const createOutputBuffer = (): OutputBuffer => {
   let flushScheduled = false;
   let initialized = false;
   let lastResolvedPanel: string[] = [];
+  let tabWidth = 8;
 
   const handleResize = async (inputManager: InputManager): Promise<void> => {
     inputManager.supressInput();
     process.stdout.write(`${ESC}[J`);
-    await initializeCurrentRow();
+    await queryCursorRow();
     inputManager.unsupressInput();
     scheduleFlush();
   };
 
-  const initializeCurrentRow = async (): Promise<void> => {
-    const row = await queryCursorRow();
-    activeRow = row;
+  const queryCursorRow = (): Promise<void> => {
+    return new Promise((resolve) => {
+      let buffer = "";
+      const timeout = setTimeout(() => {
+        process.stdin.off("data", onData);
+        resolve();
+      }, 500);
+      const onData = (data: Buffer) => {
+        buffer += data.toString();
+        const match = buffer.match(/\[(\d+);(\d+)R/);
+        if (match) {
+          clearTimeout(timeout);
+          activeRow =  parseInt(match[1]!, 10);
+          process.stdin.off("data", onData);
+          resolve();
+        }
+      };
+      process.stdin.on("data", onData);
+      process.stdout.write(`${ESC}[6n`);
+    });
+  };
+
+  const initCursorAndTab = (): Promise<void> => {
+    return new Promise((resolve) => {
+      let buffer = "";
+      const timeout = setTimeout(() => {
+        process.stdin.off("data", onData);
+        activeRow = 1;
+        tabWidth = 8;
+        resolve();
+      }, 100);
+      const onData = (data: Buffer) => {
+        buffer += data.toString();
+        const match = buffer.match(/\[(\d+);(\d+)R/);
+        if (match) {
+          clearTimeout(timeout);
+          process.stdin.off("data", onData);
+          activeRow = parseInt(match[1]!, 10);
+          tabWidth = parseInt(match[2]!, 10);
+          resolve();
+        }
+      };
+      process.stdin.on("data", onData);
+      process.stdout.write(`${ESC}7${ESC}[1G\t${ESC}[6n${ESC}8`);
+    });
   };
 
   const arraysEqual = (a: string[], b: string[]): boolean => {
@@ -159,7 +180,7 @@ const createOutputBuffer = (): OutputBuffer => {
 
   const init = async (inputManager: InputManager): Promise<void> => {
     inputManager.supressInput();
-    await initializeCurrentRow();
+    await initCursorAndTab();
     initialized = true;
     inputManager.unsupressInput();
     process.on("SIGWINCH", () => {
