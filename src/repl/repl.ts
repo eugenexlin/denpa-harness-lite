@@ -50,12 +50,26 @@ export const createRepl = (
   let userInput: string = "";
   let userInputFormatted: string = "";
 
-  const handleExit = (): void => {
-    process.stdout.write(clearFromCursor());
-    running = false;
-    inputManager.stop();
-    agentManager.abortAll();
-    process.exit(0);
+  let terminateMe: () => void = () => {};
+
+  const waitForTermination = () => {
+    return new Promise<void>((resolve) => {
+      // SIGINT is triggered by Ctrl+C
+      process.on("SIGINT", () => {
+        console.log("\nReceived SIGINT (Ctrl+C). Shutting down...");
+        resolve();
+      });
+
+      // SIGTERM is often sent by process managers or Docker
+      process.on("SIGTERM", () => {
+        console.log("Received SIGTERM. Shutting down...");
+        resolve();
+      });
+
+      terminateMe = () => {
+        resolve();
+      };
+    });
   };
 
   const rerenderPanel = (): void => {
@@ -76,6 +90,13 @@ export const createRepl = (
       userInput = value;
       userInputFormatted = formattedValue;
       rerenderPanel();
+    },
+    onSubmit: (value: string) => {
+      handleInput(value);
+    },
+    onTerminate: () => {
+      outputBuffer.scroll("terminate\n");
+      terminateMe();
     },
   });
 
@@ -174,7 +195,7 @@ export const createRepl = (
     });
 
     slashCommands.set("exit", async () => {
-      handleExit();
+      terminateMe();
       return "";
     });
 
@@ -361,34 +382,17 @@ export const createRepl = (
       outputBuffer.scroll("\n");
       outputBuffer.scroll("\n");
 
-      while (running) {
-        try {
-          const userInput = await inputManager.submit();
-          if (inputManager.wasCancelled()) {
-            continue;
-          }
+      await waitForTermination();
 
-          if (userInput.trim()) {
-            const result = await handleInput(userInput);
-            if (result) {
-              outputBuffer.scroll("\n");
-              outputBuffer.scroll(result);
-              outputBuffer.scroll("\n");
-            }
-          }
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          setPanelState({ type: "error", message });
-          outputBuffer.scroll(red(`✗ ${message}`));
-          outputBuffer.scroll("\n");
-        }
-      }
-
+      process.stdout.write(clearFromCursor());
+      running = false;
       inputManager.stop();
+      agentManager.abortAll();
+      process.exit(0);
     },
 
     stop: (): void => {
-      handleExit();
+      terminateMe();
     },
   };
 };

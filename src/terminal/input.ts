@@ -2,34 +2,45 @@ import { ANSI_STYLE } from "./ansi";
 
 export interface InputManagerProps {
   onUserInputUpdate: (input: string, render: string) => void;
+  onSubmit: (input: string) => void; // on submit contains the entire buffer anyways to cover if your user is apm freak
+  onTerminate: () => void;
 }
 
 export interface InputManager {
   start: () => void;
   stop: () => void;
-  supressInput: () => void; // only use for stuff like probing the cursor position in stdout/in
+  supressInput: () => void;
   unsupressInput: () => void;
-  submit: () => Promise<string>;
-  cancel: () => void;
   getBuffer: () => string;
   getCursor: () => number;
   setCursor: (pos: number) => void;
-  wasCancelled: () => boolean;
+  clearExitTimeout: () => void;
 }
 
 export const createInputManager = (props: InputManagerProps): InputManager => {
-  const { onUserInputUpdate } = props;
+  const { onUserInputUpdate, onSubmit, onTerminate } = props;
   let buffer = "";
   let cursor = 0;
   let escapeSequence = "";
-  let resolveFn: ((value: string) => void) | null = null;
-  let submitted = false;
-  let isCancelled = false;
   let isStarted = false;
   let isInputSupressed = false;
 
   let cursorInterval: NodeJS.Timeout;
   let isCursorBlinkVisible = true;
+
+  let exitTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  const wipeBuffer = () => {
+    buffer = "";
+    cursor = 0;
+  };
+
+  const clearExitTimeout = (): void => {
+    if (exitTimeout !== null) {
+      clearTimeout(exitTimeout);
+      exitTimeout = null;
+    }
+  };
 
   const handleUpdateUserInput = (): void => {
     let output = buffer;
@@ -91,6 +102,22 @@ export const createInputManager = (props: InputManagerProps): InputManager => {
     cursor = buffer.length;
   };
 
+  const moveCursorBackwardWord = (): void => {
+    if (cursor === 0) return;
+    let pos = cursor - 1;
+    while (pos > 0 && buffer[pos - 1] === " ") pos--;
+    while (pos > 0 && buffer[pos - 1] !== " ") pos--;
+    cursor = pos;
+  };
+
+  const moveCursorForwardWord = (): void => {
+    if (cursor >= buffer.length) return;
+    let pos = cursor;
+    while (pos < buffer.length && buffer[pos] === " ") pos++;
+    while (pos < buffer.length && buffer[pos] !== " ") pos++;
+    cursor = pos;
+  };
+
   const handleEscapeSequence = (char: string): void => {
     escapeSequence += char;
 
@@ -118,6 +145,30 @@ export const createInputManager = (props: InputManagerProps): InputManager => {
     if (escapeSequence === "\x1b[D") {
       moveCursorLeft();
       handleUpdateUserInput();
+      escapeSequence = "";
+      return;
+    }
+
+    if (escapeSequence === "\x1b[1;5D") {
+      moveCursorBackwardWord();
+      handleUpdateUserInput();
+      escapeSequence = "";
+      return;
+    }
+
+    if (escapeSequence === "\x1b[1;5C") {
+      moveCursorForwardWord();
+      handleUpdateUserInput();
+      escapeSequence = "";
+      return;
+    }
+
+    if (escapeSequence === "\x1b[1;5A") {
+      escapeSequence = "";
+      return;
+    }
+
+    if (escapeSequence === "\x1b[1;5B") {
       escapeSequence = "";
       return;
     }
@@ -163,6 +214,11 @@ export const createInputManager = (props: InputManagerProps): InputManager => {
       return;
     }
 
+    if (escapeSequence.match(/^\x1b\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]$/)) {
+      escapeSequence = "";
+      return;
+    }
+
     if (escapeSequence.length > 10) {
       escapeSequence = "";
     }
@@ -185,27 +241,28 @@ export const createInputManager = (props: InputManagerProps): InputManager => {
         handleEscapeSequence(char);
         continue;
       }
-
       if (char === "\x03") {
-        isCancelled = true;
-        handleUpdateUserInput();
-        if (resolveFn) {
-          const fn = resolveFn;
-          resolveFn = null;
-          fn("");
+        // ctrl + c
+
+        if (exitTimeout !== null) {
+          onTerminate();
         }
+
+        if (buffer.length > 0) {
+          wipeBuffer();
+          handleUpdateUserInput();
+        }
+
+        exitTimeout = setTimeout(() => {
+          exitTimeout = null;
+        }, 1000);
+
         return;
       }
 
       if (char === "\x04") {
         if (buffer.length === 0) {
-          isCancelled = true;
           handleUpdateUserInput();
-          if (resolveFn) {
-            const fn = resolveFn;
-            resolveFn = null;
-            fn("");
-          }
           return;
         }
         deleteCharForward();
@@ -214,53 +271,68 @@ export const createInputManager = (props: InputManagerProps): InputManager => {
       }
 
       if (char === "\r" || char === "\n") {
-        submitted = true;
-        handleUpdateUserInput();
-        if (resolveFn) {
-          const fn = resolveFn;
-          resolveFn = null;
-          fn(buffer);
-        }
+        clearExitTimeout();
+        onSubmit(buffer);
+        wipeBuffer();
         return;
       }
 
-      if (char === "\x7f" || char === "\x08") {
+      if (char === "\x08") {
+        // Ctrl+Backspace: delete word before cursor
+        clearExitTimeout();
+        deleteWord();
+        handleUpdateUserInput();
+        continue;
+      }
+
+      if (char === "\x7f") {
+        // Regular Backspace: delete char before cursor
         deleteBeforeCursor();
         handleUpdateUserInput();
         continue;
       }
 
       if (char === "\x15") {
-        buffer = "";
-        cursor = 0;
+        // ctrl + U : supposed to
+        // typically deletes everything from the current cursor position back to the beginning of the line (kill line).
+        // TODO
+        clearExitTimeout();
+        wipeBuffer();
         handleUpdateUserInput();
         continue;
       }
 
       if (char === "\x17") {
+        //  || char === "\x1f"
+        // ctrl + w ||
+        clearExitTimeout();
         deleteWord();
         handleUpdateUserInput();
         continue;
       }
 
       if (char === "\x01") {
+        // ctrl + a
         moveCursorToStart();
         handleUpdateUserInput();
         continue;
       }
 
       if (char === "\x05") {
+        // ctrl + e
         moveCursorToEnd();
         handleUpdateUserInput();
         continue;
       }
 
       if (char === "\x1b") {
+        // escape header
         escapeSequence = char;
         continue;
       }
 
       if (char.length === 1 && char >= " ") {
+        clearExitTimeout();
         insertChar(char);
         handleUpdateUserInput();
       }
@@ -286,7 +358,11 @@ export const createInputManager = (props: InputManagerProps): InputManager => {
       process.stdin.pause();
       process.stdin.setEncoding("ascii");
       process.stdin.off("data", handleData);
-      cursorInterval;
+      cursorInterval && clearInterval(cursorInterval);
+      if (exitTimeout) {
+        clearTimeout(exitTimeout);
+        exitTimeout = null;
+      }
       isStarted = false;
     },
 
@@ -298,22 +374,6 @@ export const createInputManager = (props: InputManagerProps): InputManager => {
       isInputSupressed = false;
     },
 
-    submit: (): Promise<string> => {
-      return new Promise((resolve) => {
-        resolveFn = resolve;
-        submitted = false;
-        isCancelled = false;
-      });
-    },
-
-    cancel: (): void => {
-      buffer = "";
-      cursor = 0;
-      submitted = false;
-      isCancelled = true;
-      handleUpdateUserInput();
-    },
-
     getBuffer: (): string => buffer,
 
     getCursor: (): number => cursor,
@@ -322,6 +382,6 @@ export const createInputManager = (props: InputManagerProps): InputManager => {
       cursor = Math.max(0, Math.min(pos, buffer.length));
     },
 
-    wasCancelled: (): boolean => isCancelled,
+    clearExitTimeout: (): void => clearExitTimeout(),
   };
 };

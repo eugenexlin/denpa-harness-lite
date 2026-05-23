@@ -32,7 +32,10 @@ const createOutputBuffer = (): OutputBuffer => {
 
   const handleResize = async (inputManager: InputManager): Promise<void> => {
     inputManager.supressInput();
-    supressPanel = true;
+    if (!supressPanel) {
+      process.stdout.write(`${ESC}[J`);
+      supressPanel = true;
+    }
 
     if (resizeDebounceTimer) {
       clearTimeout(resizeDebounceTimer);
@@ -41,7 +44,6 @@ const createOutputBuffer = (): OutputBuffer => {
     resizeDebounceTimer = setTimeout(async () => {
       try {
         resizeDebounceTimer = null;
-        process.stdout.write(`${ESC}[J`);
         await queryCursorRow();
       } finally {
         inputManager.unsupressInput();
@@ -116,7 +118,7 @@ const createOutputBuffer = (): OutputBuffer => {
   };
 
   const countVisualRows = (text: string, cols: number): number => {
-    const stripped = stripAnsi(text)
+    const stripped = stripAnsi(text);
     let rows = 0;
     let col = colPos;
     for (const char of stripped) {
