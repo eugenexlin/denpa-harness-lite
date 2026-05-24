@@ -38,6 +38,18 @@ export const saveCursor = (): string => `${ESC}7`;
 
 export const restoreCursor = (): string => `${ESC}8`;
 
+export const RGB_COLOR = {
+  gray100: `247;247;247`,
+  gray200: `229;229;229`,
+  gray300: `212;212;212`,
+  gray400: `163;163;163`,
+  gray500: `115;115;115`,
+  gray600: `82;82;82`,
+  gray700: `64;64;64`,
+  gray800: `45;45;45`,
+  gray900: `33;33;33`,
+};
+
 // Colors and styling
 export const ANSI_STYLE = {
   reset: `${ESC}[0m`,
@@ -70,8 +82,18 @@ export const ANSI_STYLE = {
     magenta: `${ESC}[45m`,
     cyan: `${ESC}[46m`,
     white: `${ESC}[47m`,
+    gray900: `${ESC}[48;2;${RGB_COLOR.gray900}m`,
   },
 } as const;
+
+export const setBgColor = (rgbColor: string) => {
+  if (!/^\d+;\d+;\d+$/.test(rgbColor)) {
+    throw new Error(
+      `Invalid RGB color format: "${rgbColor}". Expected "R;G;B" (e.g., "255;128;0")`,
+    );
+  }
+  return `${ESC}[48;2;${rgbColor}m`;
+};
 
 export const color = (text: string, code: string): string =>
   `${code}${text}${ANSI_STYLE.reset}`;
@@ -140,5 +162,4 @@ export const separator = (width: number, char = "─"): string =>
 
 export const ANSI_REGEX = /\x1b\[[;\d]*[A-Za-z]/g;
 
-export const stripAnsi = (text: string): string =>
-  text.replace(ANSI_REGEX, "");
+export const stripAnsi = (text: string): string => text.replace(ANSI_REGEX, "");

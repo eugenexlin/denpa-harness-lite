@@ -11,7 +11,12 @@ import {
   red,
   bold,
   clearFromCursor,
+  ANSI_STYLE,
+  ESC,
+  clearLine,
 } from "../terminal/ansi";
+import { wrapText } from "../terminal/wrap";
+import { visualWidth } from "../terminal/col-width";
 import {
   createOutputBuffer,
   FULL_WIDTH_RULE,
@@ -77,9 +82,14 @@ export const createRepl = (
       return;
     }
 
+    const cols = process.stdout.columns || 80;
+    const wrapResult = wrapText(userInputFormatted, 0, 0, cols - 3);
+
     outputBuffer.setPanel([
       FULL_WIDTH_RULE,
-      `${gray("> ")}${userInputFormatted}`,
+      ...wrapResult.textLines.map((line, i) => {
+        return `${i === 0 ? gray("> ") : "  "}${line}`;
+      }),
       FULL_WIDTH_RULE,
     ]);
   };
@@ -226,60 +236,23 @@ export const createRepl = (
     });
   };
 
-  const updatePanel = (): void => {
-    switch (panelState.type) {
-      case "streaming": {
-        const elapsed = Date.now() - panelState.startTime;
-        const line = `${panelState.model} | ${formatDuration(elapsed)} | tokens: -/-`;
-        outputBuffer.setPanel([
-          FULL_WIDTH_RULE,
-          `${gray("> submitted")}`,
-          gray(line),
-          FULL_WIDTH_RULE,
-        ]);
-        break;
-      }
+  const formatUserInput = (input: string): string => {
+    const cols = process.stdout.columns || 80;
+    const wrapWidth = cols - 4;
+    const wrapResult = wrapText(input, 0, 0, wrapWidth);
 
-      case "agent-running": {
-        const lines: PanelLine[] = [];
-        lines.push(FULL_WIDTH_RULE);
-        lines.push(
-          ...panelState.agents.map(
-            (a) =>
-              `[agent-${a.id}] ${a.status}... ${formatDuration(a.duration)}`,
-          ),
-        );
-        lines.push(gray("Ctrl+C to cancel"));
-        lines.push(FULL_WIDTH_RULE);
-        outputBuffer.setPanel(lines);
-        break;
-      }
+    const lines = [
+      `${ANSI_STYLE.bg.gray900}${clearLine(2)}`,
+      ...wrapResult.textLines.map((line) => `${clearLine(2)}  ${line}`),
+      `${clearLine(2)}${ANSI_STYLE.reset}`,
+    ];
 
-      case "agent-complete": {
-        const lines: PanelLine[] = [];
-        lines.push(FULL_WIDTH_RULE);
-        lines.push(
-          ...panelState.results.map(
-            (r) =>
-              `[agent-${r.id}] done (${formatDuration(r.duration)}) | ${r.content.slice(0, 60)}${r.content.length > 60 ? "..." : ""}`,
-          ),
-        );
-        lines.push(FULL_WIDTH_RULE);
-        outputBuffer.setPanel(lines);
-        break;
-      }
-
-      case "error":
-        outputBuffer.setPanel([
-          FULL_WIDTH_RULE,
-          red(`✗ ${panelState.message}`),
-          FULL_WIDTH_RULE,
-        ]);
-        break;
-    }
+    return lines.join("\n");
   };
 
   const handleInput = async (input: string): Promise<void> => {
+    outputBuffer.scroll(formatUserInput(input) + "\n");
+
     if (input.startsWith("/")) {
       return handleSlashCommand(input);
     }

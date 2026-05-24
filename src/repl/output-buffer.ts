@@ -132,11 +132,18 @@ export const createOutputBuffer = (): OutputBuffer => {
     return out;
   };
 
-  const resolvePanelLines = (lines: PanelLine[]): string[] => {
+  const sanitizePanelLines = (lines: PanelLine[]): string[] => {
     const cols = process.stdout.columns || 80;
+
     return lines.map((line) => {
-      if (typeof line === "string") return line;
-      if (line.type === "full-width-rule") return "─".repeat(cols);
+      if (typeof line === "string") {
+        // sanitize, make sure the stuff will fit.
+        const wraptextResult = wrapText(line, 0, 0, cols);
+        return wraptextResult.textLines[0] ?? "";
+      }
+      if (line.type === "full-width-rule") {
+        return "─".repeat(cols);
+      }
       return "";
     });
   };
@@ -145,7 +152,7 @@ export const createOutputBuffer = (): OutputBuffer => {
     if (!initialized) return;
     const scrollBufferFlush = scrollBuffer;
     scrollBuffer = "";
-    const panelFlush = resolvePanelLines(panelLines);
+    const panelFlush = sanitizePanelLines(panelLines);
     const newPanelHeight = Math.max(1, panelFlush.length);
     const totalRows = process.stdout.rows || 24;
     const activeRowLimit = totalRows - newPanelHeight;
@@ -155,7 +162,6 @@ export const createOutputBuffer = (): OutputBuffer => {
     if (scrollBufferFlush) {
       const cols = process.stdout.columns || 80;
       const wrapTextResult = wrapText(scrollBufferFlush, 0, cursorCol, cols);
-      //logFile(wrapTextResult);
       const targetRow = Math.min(
         cursorRow + wrapTextResult.rowIncrementCount,
         activeRowLimit,
@@ -173,7 +179,6 @@ export const createOutputBuffer = (): OutputBuffer => {
       // at this point cursor should be as accurate as can be
     }
 
-    //logFile(panelFlush);
     //here we may need to shift the entire thing up depending on needing space for the panel
     if (cursorRow + newPanelHeight > totalRows) {
       const delta = cursorRow + newPanelHeight - totalRows;
@@ -206,7 +211,7 @@ export const createOutputBuffer = (): OutputBuffer => {
   };
 
   const setPanel = (lines: PanelLine[]): void => {
-    const resolved = resolvePanelLines(lines);
+    const resolved = sanitizePanelLines(lines);
     if (arraysEqual(resolved, lastResolvedPanel)) {
       return;
     }
