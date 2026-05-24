@@ -9,17 +9,14 @@ import type { Message } from "../api/types";
 import {
   gray,
   red,
-  green,
   bold,
-  cyan,
-  separator,
-  spinner,
-  ANSI_STYLE,
-  clearLine,
   clearFromCursor,
-  stripAnsi,
 } from "../terminal/ansi";
-import { FULL_WIDTH_RULE, outputBuffer, type PanelLine } from "./output-buffer";
+import {
+  createOutputBuffer,
+  FULL_WIDTH_RULE,
+  type PanelLine,
+} from "./output-buffer";
 
 export type PanelState =
   | { type: "idle" }
@@ -49,6 +46,8 @@ export const createRepl = (
 ): Repl => {
   let userInput: string = "";
   let userInputFormatted: string = "";
+
+  const outputBuffer = createOutputBuffer();
 
   let terminateMe: () => void = () => {};
 
@@ -280,24 +279,31 @@ export const createRepl = (
     }
   };
 
-  const handleInput = async (input: string): Promise<string> => {
+  const handleInput = async (input: string): Promise<void> => {
     if (input.startsWith("/")) {
-      const parts = input.trim().split(/\s+/);
-      const cmd = parts[0]?.slice(1) ?? "";
-      const args = parts.slice(1).join(" ");
-
-      const handler = slashCommands.get(cmd);
-      if (handler) {
-        return await handler(args);
-      }
-
-      return `Unknown command: /${cmd}. Type /help for available commands.`;
+      return handleSlashCommand(input);
     }
 
-    return handleMessage(input);
+    return handleSendToLlm(input);
   };
 
-  const handleMessage = async (input: string): Promise<string> => {
+  const handleSlashCommand = async (input: string): Promise<void> => {
+    const parts = input.trim().split(/\s+/);
+    const cmd = parts[0]?.slice(1) ?? "";
+    const args = parts.slice(1).join(" ");
+
+    const handler = slashCommands.get(cmd);
+    if (handler) {
+      const result = await handler(args);
+      outputBuffer.scroll(result);
+    }
+    outputBuffer.scroll(
+      `Unknown command: /${cmd}. Type /help for available commands.`,
+    );
+    return;
+  };
+
+  const handleSendToLlm = async (input: string): Promise<void> => {
     session.addMessage("user", input);
     setPanelState({
       type: "streaming",
@@ -307,6 +313,8 @@ export const createRepl = (
 
     let fullResponse = "";
     const startTime = Date.now();
+    let tokensIn = 0;
+    let tokensOut = 0;
 
     try {
       const stats = await client.chatStream(
@@ -317,18 +325,29 @@ export const createRepl = (
           outputBuffer.scroll(token);
         },
       );
+      outputBuffer.scroll("\n");
 
       const duration = Date.now() - startTime;
       statsDB.recordRequest(duration, stats.tokensIn, stats.tokensOut);
+      tokensIn = stats.tokensIn;
+      tokensOut = stats.tokensOut;
 
       session.addMessage("assistant", fullResponse);
-
-      return `${gray(`\n${client.getModel()} | ${formatDuration(duration)} | in:${stats.tokensIn} out:${stats.tokensOut}`)}`;
     } catch (err) {
-      const duration = Date.now() - startTime;
       const message = err instanceof Error ? err.message : String(err);
-      return red(`✗ ${message}`);
+      outputBuffer.scroll(red(`✗ ${message}`));
     }
+
+    const duration = Date.now() - startTime;
+    let infoBuffer = `\n${formatDuration(duration)}`;
+    if (tokensIn > 0) {
+      infoBuffer += ` | in:${tokensIn}`;
+    }
+    if (tokensOut > 0) {
+      infoBuffer += ` | out:${tokensOut}`;
+    }
+    infoBuffer += "\n";
+    outputBuffer.scroll(gray(infoBuffer));
   };
 
   const handleAgent = async (prompt: string): Promise<string> => {

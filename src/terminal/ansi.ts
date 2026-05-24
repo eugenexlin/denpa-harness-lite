@@ -1,7 +1,12 @@
 // Cursor movement
-export const ESC = '\x1b';
+export const ESC = "\x1b";
 
-export const moveTo = (x: number, y: number): string => `${ESC}[${y};${x}H`;
+export const moveTo = (row: number, col: number): string =>
+  `${ESC}[${row};${col}H`;
+
+export const lockScroll = (startRow: number, endRow: number): string =>
+  `${ESC}[${startRow};${endRow}r`;
+export const resetScroll = (): string => `${ESC}[r`;
 
 export const moveUp = (n = 1): string => `${ESC}[${n}A`;
 
@@ -68,7 +73,8 @@ export const ANSI_STYLE = {
   },
 } as const;
 
-export const color = (text: string, code: string): string => `${code}${text}${ANSI_STYLE.reset}`;
+export const color = (text: string, code: string): string =>
+  `${code}${text}${ANSI_STYLE.reset}`;
 
 export const gray = (text: string): string => color(text, ANSI_STYLE.fg.gray);
 
@@ -76,19 +82,43 @@ export const red = (text: string): string => color(text, ANSI_STYLE.fg.red);
 
 export const green = (text: string): string => color(text, ANSI_STYLE.fg.green);
 
-export const yellow = (text: string): string => color(text, ANSI_STYLE.fg.yellow);
+export const yellow = (text: string): string =>
+  color(text, ANSI_STYLE.fg.yellow);
 
 export const cyan = (text: string): string => color(text, ANSI_STYLE.fg.cyan);
 
 export const bold = (text: string): string => color(text, ANSI_STYLE.bold);
 
 // Spinner
-export const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+export const SPINNER_FRAMES = [
+  "⠋",
+  "⠙",
+  "⠹",
+  "⠸",
+  "⠼",
+  "⠴",
+  "⠦",
+  "⠧",
+  "⠇",
+  "⠏",
+];
 
-export const spinner = (frame: number, text: string): string => `${SPINNER_FRAMES[frame % SPINNER_FRAMES.length]} ${text}`;
+export const spinner = (frame: number, text: string): string =>
+  `${SPINNER_FRAMES[frame % SPINNER_FRAMES.length]} ${text}`;
 
 // Alternative simple spinner
-export const SIMPLE_SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+export const SIMPLE_SPINNER = [
+  "⠋",
+  "⠙",
+  "⠹",
+  "⠸",
+  "⠼",
+  "⠴",
+  "⠦",
+  "⠧",
+  "⠇",
+  "⠏",
+];
 
 // Line drawing
 export const box = {
@@ -105,7 +135,10 @@ export const box = {
   cross: "┼",
 };
 
-export const separator = (width: number, char = "─"): string => char.repeat(width);
+export const separator = (width: number, char = "─"): string =>
+  char.repeat(width);
+
+export const ANSI_REGEX = /\x1b\[[;\d]*[A-Za-z]/g;
 
 export const stripAnsi = (text: string): string =>
-  text.replace(/\x1b\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]/g, "");
+  text.replace(ANSI_REGEX, "");

@@ -1,11 +1,14 @@
+import { logFile } from "../debug-logger";
 import {
+  ANSI_STYLE,
   clearFromCursor,
   ESC,
+  moveTo,
   restoreCursor,
   saveCursor,
-  stripAnsi,
 } from "../terminal/ansi";
 import type { InputManager } from "../terminal/input";
+import { wrapText } from "../terminal/wrap";
 
 export type PanelToken = { type: "full-width-rule" };
 export type PanelLine = string | PanelToken;
@@ -17,12 +20,13 @@ export interface OutputBuffer {
   scroll: (text: string) => void;
 }
 
-const createOutputBuffer = (): OutputBuffer => {
+/// you better only create 1 in your entire app, buddy
+export const createOutputBuffer = (): OutputBuffer => {
   let scrollBuffer = "";
   let panelLines: PanelLine[] = [];
   let panelHeight = 0;
-  let activeRow = 1;
-  let colPos = 0;
+  let cursorRow = 1;
+  let cursorCol = 0;
   let flushScheduled = false;
   let initialized = false;
   let lastResolvedPanel: string[] = [];
@@ -65,7 +69,7 @@ const createOutputBuffer = (): OutputBuffer => {
         const match = buffer.match(/\[(\d+);(\d+)R/);
         if (match) {
           clearTimeout(timeout);
-          activeRow = parseInt(match[1]!, 10);
+          cursorRow = parseInt(match[1]!, 10);
           process.stdin.off("data", onData);
           resolve();
         }
@@ -80,7 +84,7 @@ const createOutputBuffer = (): OutputBuffer => {
       let buffer = "";
       const timeout = setTimeout(() => {
         process.stdin.off("data", onData);
-        activeRow = 1;
+        cursorRow = 1;
         tabWidth = 8;
         resolve();
       }, 100);
@@ -90,7 +94,7 @@ const createOutputBuffer = (): OutputBuffer => {
         if (match) {
           clearTimeout(timeout);
           process.stdin.off("data", onData);
-          activeRow = parseInt(match[1]!, 10);
+          cursorRow = parseInt(match[1]!, 10);
           tabWidth = parseInt(match[2]!, 10);
           resolve();
         }
@@ -117,32 +121,12 @@ const createOutputBuffer = (): OutputBuffer => {
     });
   };
 
-  const countVisualRows = (text: string, cols: number): number => {
-    const stripped = stripAnsi(text);
-    let rows = 0;
-    let col = colPos;
-    for (const char of stripped) {
-      if (char === "\n") {
-        rows++;
-        col = 0;
-      } else if (char === "\r") {
-        col = 0;
-      } else {
-        col++;
-        if (col >= cols) {
-          rows++;
-          col = 0;
-        }
-      }
-    }
-    colPos = col;
-    return rows;
-  };
-
   const buildPanel = (panelFlush: string[]): string => {
     let out = saveCursor();
     panelFlush.forEach((line, idx) => {
-      out += `${ESC}[${activeRow + idx + 1};1H${ESC}[0m${ESC}[2K${line}`;
+      out += moveTo(cursorRow + idx + 1, 1);
+      out += ANSI_STYLE.reset;
+      out += line;
     });
     out += restoreCursor();
     return out;
@@ -170,23 +154,38 @@ const createOutputBuffer = (): OutputBuffer => {
 
     if (scrollBufferFlush) {
       const cols = process.stdout.columns || 80;
-      const newRows = countVisualRows(scrollBufferFlush, cols);
-      const targetRow = Math.min(activeRow + newRows, activeRowLimit);
-      out += scrollBufferFlush;
-      activeRow = targetRow > activeRowLimit ? activeRowLimit : targetRow;
+      const wrapTextResult = wrapText(scrollBufferFlush, 0, cursorCol, cols);
+      //logFile(wrapTextResult);
+      const targetRow = Math.min(
+        cursorRow + wrapTextResult.rowIncrementCount,
+        activeRowLimit,
+      );
+      wrapTextResult.textLines.forEach((line, index) => {
+        out += line;
+        // add a new line for every line not the last one.
+        if (index < wrapTextResult.textLines.length - 1) {
+          out += "\n";
+        }
+      });
+      cursorRow = targetRow > activeRowLimit ? activeRowLimit : targetRow;
+      cursorCol = wrapTextResult.newColumn;
+
+      // at this point cursor should be as accurate as can be
     }
 
-    if (activeRow + newPanelHeight > totalRows) {
-      const delta = activeRow + newPanelHeight - totalRows;
-      out += `${saveCursor()}${ESC}[1;${Math.max(1, activeRow)}H${ESC}[${activeRow};1H`;
-      for (let i = 0; i < delta; i++) out += `\n`;
-      out += `${restoreCursor()}`;
-      activeRow = Math.max(1, activeRow - delta);
-    }
+    //logFile(panelFlush);
+    //here we may need to shift the entire thing up depending on needing space for the panel
+    if (cursorRow + newPanelHeight > totalRows) {
+      const delta = cursorRow + newPanelHeight - totalRows;
+      out += moveTo(totalRows, 1); // limit scroll to right where the scroll ends
+      for (let i = 0; i < delta; i++) {
+        out += `\n`;
+      }
+      cursorRow = Math.max(1, cursorRow - delta);
 
-    panelHeight = newPanelHeight;
-    const contentBottom = totalRows - panelHeight;
-    out += `${ESC}[1;${Math.max(1, contentBottom)}H${ESC}[${activeRow};${colPos + 1}H`;
+      // since we are setting the row. you have to move ourself back to the right place
+      out += moveTo(cursorRow, cursorCol);
+    }
 
     if (!supressPanel) {
       out += buildPanel(panelFlush);
@@ -224,5 +223,3 @@ const createOutputBuffer = (): OutputBuffer => {
 
   return { init, setPanel, scroll };
 };
-
-export const outputBuffer = createOutputBuffer();

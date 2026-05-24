@@ -1,8 +1,9 @@
+import { ANSI_REGEX } from "./ansi";
 import { visualWidth, charWidth, isBreakableWhitespace } from "./col-width";
 
 export interface WrapTextResult {
   textLines: string[];
-  rowCount: number;
+  rowIncrementCount: number;
   newColumn: number;
 }
 
@@ -14,8 +15,20 @@ const wrapLine = (line: string, maxWidth: number): [string, string] => {
   let width = 0;
   let lastBreakOffset = 0;
   let offset = 0;
+  let ansiOffset = 0;
 
-  for (const char of line) {
+  ANSI_REGEX.lastIndex = 0;
+  let ansiMatch = ANSI_REGEX.exec(line);
+
+  for (let i = 0; i < line.length; i++) {
+    if (ansiMatch && i === ansiMatch.index) {
+      i += ansiMatch[0].length - 1;
+      ansiOffset += ansiMatch[0].length;
+      ansiMatch = ANSI_REGEX.exec(line);
+      continue;
+    }
+
+    const char = line.charAt(i);
     const codePoint = char.codePointAt(0)!;
     const w = charWidth(codePoint);
 
@@ -27,8 +40,11 @@ const wrapLine = (line: string, maxWidth: number): [string, string] => {
     }
 
     width += w;
+    if (ansiOffset >= 0) {
+      offset += ansiOffset;
+      ansiOffset = 0;
+    }
     offset += char.length;
-
     if (isBreakableWhitespace(codePoint)) {
       lastBreakOffset = offset;
     }
@@ -70,13 +86,12 @@ export const wrapText = (
     }
   }
 
-  const rowCount = result.length;
   const lastLine = result[result.length - 1] ?? "";
   const newColumn = visualWidth(lastLine);
 
   return {
     textLines: result,
-    rowCount,
+    rowIncrementCount: result.length - 1,
     newColumn,
   };
 };
