@@ -1,7 +1,7 @@
 import type { APIClient } from "../api/client";
 import type { Session } from "../agent/session";
 import type { StatsDB } from "../stats/db";
-import { gray, bold } from "../terminal/ansi";
+import { fgGray, bold } from "../terminal/ansi";
 import type { ToolDefinition } from "../api/types";
 
 export const runCLI = async (
@@ -32,8 +32,8 @@ export const runCLI = async (
 
     console.log("");
     console.log(
-      gray(
-        `\n${bold(client.getModel())} | ${formatDuration(duration)} | in:${stats.tokensIn} out:${stats.tokensOut}`,
+      fgGray(
+        `\n${bold(client.getModel())} | ${formatDuration(duration)} | in:${stats.tokensIn} out:${stats.tokensOut}\n`,
       ),
     );
   } catch (err) {

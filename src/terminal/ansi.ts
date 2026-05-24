@@ -17,11 +17,13 @@ export const moveForward = (n = 1): string => `${ESC}[${n}C`;
 export const moveBack = (n = 1): string => `${ESC}[${n}D`;
 
 // Clear
-export const clearLine = (dir = 0): string => {
+export const clearLine = (dir = 2): string => {
   // 0 = end, 1 = start, 2 = all
   return `${ESC}[${dir}K`;
 };
-export const clearScreen = (dir = 0): string => {
+
+
+export const clearScreen = (dir = 2): string => {
   // 0 = end, 1 = start, 2 = all
   return `${ESC}[${dir}J`;
 };
@@ -61,6 +63,16 @@ export const ANSI_STYLE = {
   reverse: `${ESC}[7m`,
   hidden: `${ESC}[8m`,
 
+  disable: {
+    bold: `${ESC}[21m`,
+    dim: `${ESC}[22m`,
+    italic: `${ESC}[23m`,
+    underline: `${ESC}[24m`,
+    blink: `${ESC}[25m`,
+    reverse: `${ESC}[27m`,
+    hidden: `${ESC}[28m`,
+  },
+
   fg: {
     black: `${ESC}[30m`,
     red: `${ESC}[31m`,
@@ -70,6 +82,7 @@ export const ANSI_STYLE = {
     magenta: `${ESC}[35m`,
     cyan: `${ESC}[36m`,
     white: `${ESC}[37m`,
+    default: `${ESC}[39m`,
     gray: `${ESC}[90m`,
   },
 
@@ -82,6 +95,7 @@ export const ANSI_STYLE = {
     magenta: `${ESC}[45m`,
     cyan: `${ESC}[46m`,
     white: `${ESC}[47m`,
+    default: `${ESC}[49m`,
     gray900: `${ESC}[48;2;${RGB_COLOR.gray900}m`,
   },
 } as const;
@@ -95,52 +109,21 @@ export const setBgColor = (rgbColor: string) => {
   return `${ESC}[48;2;${rgbColor}m`;
 };
 
-export const color = (text: string, code: string): string =>
-  `${code}${text}${ANSI_STYLE.reset}`;
+export const fgColor = (text: string, code: string): string =>
+  `${code}${text}${ANSI_STYLE.fg.default}`;
 
-export const gray = (text: string): string => color(text, ANSI_STYLE.fg.gray);
+export const fgGray = (text: string): string => fgColor(text, ANSI_STYLE.fg.gray);
 
-export const red = (text: string): string => color(text, ANSI_STYLE.fg.red);
+export const fgRed = (text: string): string => fgColor(text, ANSI_STYLE.fg.red);
 
-export const green = (text: string): string => color(text, ANSI_STYLE.fg.green);
+export const fgGreen = (text: string): string => fgColor(text, ANSI_STYLE.fg.green);
 
-export const yellow = (text: string): string =>
-  color(text, ANSI_STYLE.fg.yellow);
+export const fgYellow = (text: string): string =>
+  fgColor(text, ANSI_STYLE.fg.yellow);
 
-export const cyan = (text: string): string => color(text, ANSI_STYLE.fg.cyan);
+export const fgCyan = (text: string): string => fgColor(text, ANSI_STYLE.fg.cyan);
 
-export const bold = (text: string): string => color(text, ANSI_STYLE.bold);
-
-// Spinner
-export const SPINNER_FRAMES = [
-  "⠋",
-  "⠙",
-  "⠹",
-  "⠸",
-  "⠼",
-  "⠴",
-  "⠦",
-  "⠧",
-  "⠇",
-  "⠏",
-];
-
-export const spinner = (frame: number, text: string): string =>
-  `${SPINNER_FRAMES[frame % SPINNER_FRAMES.length]} ${text}`;
-
-// Alternative simple spinner
-export const SIMPLE_SPINNER = [
-  "⠋",
-  "⠙",
-  "⠹",
-  "⠸",
-  "⠼",
-  "⠴",
-  "⠦",
-  "⠧",
-  "⠇",
-  "⠏",
-];
+export const bold = (text: string): string => fgColor(text, ANSI_STYLE.bold);
 
 // Line drawing
 export const box = {

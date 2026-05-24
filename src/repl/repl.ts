@@ -7,8 +7,8 @@ import type { StatsDB } from "../stats/db";
 import type { ToolDefinition } from "../api/types";
 import type { Message } from "../api/types";
 import {
-  gray,
-  red,
+  fgGray,
+  fgRed,
   bold,
   clearFromCursor,
   ANSI_STYLE,
@@ -28,13 +28,13 @@ export type PanelState =
   | { type: "typing"; text: string }
   | { type: "streaming"; model: string; startTime: number }
   | {
-      type: "agent-running";
-      agents: { id: number; status: string; duration: number }[];
-    }
+    type: "agent-running";
+    agents: { id: number; status: string; duration: number }[];
+  }
   | {
-      type: "agent-complete";
-      results: { id: number; content: string; duration: number }[];
-    }
+    type: "agent-complete";
+    results: { id: number; content: string; duration: number }[];
+  }
   | { type: "error"; message: string };
 
 export interface Repl {
@@ -50,11 +50,11 @@ export const createRepl = (
   statsDB: StatsDB,
 ): Repl => {
   let userInput: string = "";
-  let userInputFormatted: string = "";
+  let userInputWithAnsiCursor: string = "";
 
   const outputBuffer = createOutputBuffer();
 
-  let terminateMe: () => void = () => {};
+  let terminateMe: () => void = () => { };
 
   const waitForTermination = () => {
     return new Promise<void>((resolve) => {
@@ -77,27 +77,19 @@ export const createRepl = (
   };
 
   const rerenderPanel = (): void => {
+    const panelLines: PanelLine[] = formatUserInput(userInputWithAnsiCursor)
+
     if (userInput.startsWith("/")) {
-      outputBuffer.setPanel(renderSlashMenu());
-      return;
+      panelLines.push(...renderSlashMenu())
     }
 
-    const cols = process.stdout.columns || 80;
-    const wrapResult = wrapText(userInputFormatted, 0, 0, cols - 3);
-
-    outputBuffer.setPanel([
-      FULL_WIDTH_RULE,
-      ...wrapResult.textLines.map((line, i) => {
-        return `${i === 0 ? gray("> ") : "  "}${line}`;
-      }),
-      FULL_WIDTH_RULE,
-    ]);
+    outputBuffer.setPanel(panelLines);
   };
 
   const inputManager = createInputManager({
     onUserInputUpdate: (value: string, formattedValue: string): void => {
       userInput = value;
-      userInputFormatted = formattedValue;
+      userInputWithAnsiCursor = formattedValue;
       rerenderPanel();
     },
     onSubmit: (value: string) => {
@@ -140,9 +132,6 @@ export const createRepl = (
 
   const renderSlashMenu = (): PanelLine[] => {
     const lines: PanelLine[] = [];
-    lines.push(FULL_WIDTH_RULE);
-    lines.push(`${gray("> ")}${userInputFormatted}`);
-    lines.push(FULL_WIDTH_RULE);
 
     const filter = userInput.slice(1);
     const filtered = Array.from(slashCommands.entries())
@@ -236,22 +225,22 @@ export const createRepl = (
     });
   };
 
-  const formatUserInput = (input: string): string => {
+  const formatUserInput = (input: string): string[] => {
     const cols = process.stdout.columns || 80;
     const wrapWidth = cols - 4;
     const wrapResult = wrapText(input, 0, 0, wrapWidth);
 
     const lines = [
-      `${ANSI_STYLE.bg.gray900}${clearLine(2)}`,
-      ...wrapResult.textLines.map((line) => `${clearLine(2)}  ${line}`),
-      `${clearLine(2)}${ANSI_STYLE.reset}`,
+      `${ANSI_STYLE.bg.gray900}${clearLine()}`,
+      ...wrapResult.textLines.map((line, i) => `${clearLine()}${i == 0 ? "> " : "  "}${line}`),
+      `${clearLine()}${ANSI_STYLE.reset}`,
     ];
 
-    return lines.join("\n");
+    return lines;
   };
 
   const handleInput = async (input: string): Promise<void> => {
-    outputBuffer.scroll(formatUserInput(input) + "\n");
+    outputBuffer.scroll(formatUserInput(input).join("\n") + "\n\n");
 
     if (input.startsWith("/")) {
       return handleSlashCommand(input);
@@ -269,10 +258,12 @@ export const createRepl = (
     if (handler) {
       const result = await handler(args);
       outputBuffer.scroll(result);
+    } else {
+      outputBuffer.scroll(
+        `Unknown command: /${cmd}. Type /help for available commands.`,
+      );
     }
-    outputBuffer.scroll(
-      `Unknown command: /${cmd}. Type /help for available commands.`,
-    );
+    outputBuffer.scroll("\n");
     return;
   };
 
@@ -308,7 +299,7 @@ export const createRepl = (
       session.addMessage("assistant", fullResponse);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      outputBuffer.scroll(red(`✗ ${message}`));
+      outputBuffer.scroll(fgRed(`✗ ${message}`));
     }
 
     const duration = Date.now() - startTime;
@@ -320,7 +311,7 @@ export const createRepl = (
       infoBuffer += ` | out:${tokensOut}`;
     }
     infoBuffer += "\n";
-    outputBuffer.scroll(gray(infoBuffer));
+    outputBuffer.scroll(fgGray(infoBuffer));
   };
 
   const handleAgent = async (prompt: string): Promise<string> => {
@@ -366,10 +357,10 @@ export const createRepl = (
       inputManager.start();
 
       const model = client.getModel();
-      outputBuffer.scroll(bold("denpa") + ` — ${gray(`model: ${model}`)}`);
+      outputBuffer.scroll(bold("denpa") + ` — ${fgGray(`model: ${model}`)}`);
       outputBuffer.scroll("\n");
       outputBuffer.scroll(
-        gray("Type a message or /help for commands. Ctrl+C to cancel."),
+        fgGray("Type a message or /help for commands. Ctrl+C to cancel."),
       );
       outputBuffer.scroll("\n");
       outputBuffer.scroll("\n");

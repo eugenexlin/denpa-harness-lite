@@ -6,6 +6,7 @@ import {
   moveTo,
   restoreCursor,
   saveCursor,
+  separator,
 } from "../terminal/ansi";
 import type { InputManager } from "../terminal/input";
 import { wrapText } from "../terminal/wrap";
@@ -121,17 +122,6 @@ export const createOutputBuffer = (): OutputBuffer => {
     });
   };
 
-  const buildPanel = (panelFlush: string[]): string => {
-    let out = saveCursor();
-    panelFlush.forEach((line, idx) => {
-      out += moveTo(cursorRow + idx + 1, 1);
-      out += ANSI_STYLE.reset;
-      out += line;
-    });
-    out += restoreCursor();
-    return out;
-  };
-
   const sanitizePanelLines = (lines: PanelLine[]): string[] => {
     const cols = process.stdout.columns || 80;
 
@@ -142,7 +132,7 @@ export const createOutputBuffer = (): OutputBuffer => {
         return wraptextResult.textLines[0] ?? "";
       }
       if (line.type === "full-width-rule") {
-        return "─".repeat(cols);
+        return separator(cols);
       }
       return "";
     });
@@ -164,7 +154,7 @@ export const createOutputBuffer = (): OutputBuffer => {
       const wrapTextResult = wrapText(scrollBufferFlush, 0, cursorCol, cols);
       const targetRow = Math.min(
         cursorRow + wrapTextResult.rowIncrementCount,
-        activeRowLimit,
+        totalRows,
       );
       wrapTextResult.textLines.forEach((line, index) => {
         out += line;
@@ -173,10 +163,10 @@ export const createOutputBuffer = (): OutputBuffer => {
           out += "\n";
         }
       });
-      cursorRow = targetRow > activeRowLimit ? activeRowLimit : targetRow;
+      cursorRow = targetRow;
       cursorCol = wrapTextResult.newColumn;
 
-      // at this point cursor should be as accurate as can be
+      // at this point cursor should be as accurate as can be but it might be too low
     }
 
     //here we may need to shift the entire thing up depending on needing space for the panel
@@ -197,6 +187,16 @@ export const createOutputBuffer = (): OutputBuffer => {
     }
 
     process.stdout.write(out, "utf-8");
+  };
+
+  const buildPanel = (panelFlush: string[]): string => {
+    let out = saveCursor();
+    panelFlush.forEach((line, idx) => {
+      out += moveTo(cursorRow + idx + 1, 1);
+      out += line;
+    });
+    out += restoreCursor();
+    return out;
   };
 
   const init = async (inputManager: InputManager): Promise<void> => {

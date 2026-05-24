@@ -49,7 +49,7 @@ export const createInputManager = (props: InputManagerProps): InputManager => {
       ? padOutput.slice(0, cursor) +
         ANSI_STYLE.reverse +
         padOutput.charAt(cursor) +
-        ANSI_STYLE.reset +
+        ANSI_STYLE.disable.reverse +
         padOutput.slice(cursor + 1)
       : padOutput;
     onUserInputUpdate(output, formattedInput);
