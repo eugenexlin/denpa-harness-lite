@@ -227,7 +227,7 @@ export const createRepl = (
   const formatUserInput = (input: string): string[] => {
     const cols = process.stdout.columns || 80;
     const wrapWidth = cols - 4;
-    const wrapResult = wrapText(input, 0, wrapWidth);
+    const wrapResult = wrapText(input, 1, wrapWidth);
 
     const lines = [
       `${ANSI_STYLE.bg.gray900}${clearLine()}`,
@@ -239,6 +239,7 @@ export const createRepl = (
   };
 
   const handleInput = async (input: string): Promise<void> => {
+    outputBuffer.scroll("\n");
     outputBuffer.scroll(formatUserInput(input).join("\n") + "\n\n");
 
     if (input.startsWith("/")) {
@@ -383,7 +384,6 @@ export const createRepl = (
       outputBuffer.scroll(
         fgGray("Type a message or /help for commands. Ctrl+C to cancel."),
       );
-      outputBuffer.scroll("\n");
       outputBuffer.scroll("\n");
 
       await waitForTermination();
