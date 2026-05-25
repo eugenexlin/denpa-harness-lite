@@ -170,8 +170,8 @@ export const createOutputBuffer = (): OutputBuffer => {
     }
 
     //here we may need to shift the entire thing up depending on needing space for the panel
-    if (cursorRow + newPanelHeight > totalRows) {
-      const delta = cursorRow + newPanelHeight - totalRows;
+    if (cursorRow + newPanelHeight + 1 > totalRows) {
+      const delta = cursorRow + newPanelHeight + 1 - totalRows;
       out += moveTo(totalRows, 1); // limit scroll to right where the scroll ends
       for (let i = 0; i < delta; i++) {
         out += `\n`;

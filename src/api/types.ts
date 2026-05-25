@@ -20,9 +20,10 @@ export interface ChatCompletionResponse {
   choices: {
     index: number;
     message: {
-      role: string;
-      content: string | null;
-      tool_calls?: ToolCall[];
+       role: string;
+       content: string | null;
+       reasoning_content?: string;
+       tool_calls?: ToolCall[];
     };
     finish_reason: string | null;
   }[];
@@ -40,10 +41,11 @@ export interface StreamChunk {
   model: string;
   choices: {
     index: number;
-    delta: {
-      role?: string;
-      content?: string;
-      tool_calls?: {
+     delta: {
+        role?: string;
+        content?: string;
+        reasoning_content?: string;
+        tool_calls?: {
         index: number;
         id?: string;
         type?: string;

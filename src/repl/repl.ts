@@ -16,10 +16,8 @@ import {
   clearLine,
 } from "../terminal/ansi";
 import { wrapText } from "../terminal/wrap";
-import { visualWidth } from "../terminal/col-width";
 import {
   createOutputBuffer,
-  FULL_WIDTH_RULE,
   type PanelLine,
 } from "./output-buffer";
 
@@ -48,6 +46,7 @@ export const createRepl = (
   agentManager: SubagentManager,
   toolRegistry: ToolRegistry,
   statsDB: StatsDB,
+  showThinking: boolean = false,
 ): Repl => {
   let userInput: string = "";
   let userInputWithAnsiCursor: string = "";
@@ -279,6 +278,7 @@ export const createRepl = (
     const startTime = Date.now();
     let tokensIn = 0;
     let tokensOut = 0;
+    let thinkingActive = false;
 
     try {
       const stats = await client.chatStream(
@@ -287,6 +287,27 @@ export const createRepl = (
         (token) => {
           fullResponse += token;
           outputBuffer.scroll(token);
+        },
+        undefined,
+        (chunk) => {
+          if (!thinkingActive) {
+            thinkingActive = true;
+            if (showThinking) {
+              outputBuffer.scroll("[thinking]\n");
+            }
+          }
+          if (showThinking && chunk) {
+            outputBuffer.scroll(chunk);
+          }
+        },
+        (durationMs) => {
+          if (showThinking) {
+            outputBuffer.scroll("[/thinking]\n");
+          } else {
+            const seconds = Math.max(1, Math.ceil(durationMs / 1000));
+            outputBuffer.scroll(`[thought for ${seconds}s]\n`);
+          }
+          thinkingActive = false;
         },
       );
       outputBuffer.scroll("\n");

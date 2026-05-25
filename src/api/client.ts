@@ -8,6 +8,8 @@ export interface APIClient {
     tools?: ToolDefinition[],
     onToken?: (token: string) => void,
     signal?: AbortSignal,
+    onThinking?: (chunk: string) => void,
+    onThinkingEnd?: (durationMs: number) => void,
   ) => Promise<APIStats>;
   chatComplete: (
     messages: Message[],
@@ -31,9 +33,13 @@ export const createAPIClient = (baseUrl: string, apiKey: string, model: string):
     stream,
   });
 
+  type StreamEvent =
+    | { type: "thinking"; text: string }
+    | { type: "content"; text: string };
+
   const parseStream = async function* (
     response: Response,
-  ): AsyncIterable<string> {
+  ): AsyncIterable<StreamEvent> {
     const reader = response.body?.getReader();
     if (!reader) return;
 
@@ -58,8 +64,9 @@ export const createAPIClient = (baseUrl: string, apiKey: string, model: string):
 
           try {
             const chunk = JSON.parse(data) as import("./types").StreamChunk;
-            const content = chunk.choices?.[0]?.delta?.content;
-            if (content) yield content;
+            const delta = chunk.choices?.[0]?.delta;
+            if (delta?.reasoning_content) yield { type: "thinking", text: delta.reasoning_content };
+            if (delta?.content) yield { type: "content", text: delta.content };
           } catch {
             // Skip malformed JSON
           }
@@ -85,9 +92,33 @@ export const createAPIClient = (baseUrl: string, apiKey: string, model: string):
       tools?: ToolDefinition[],
       onToken?: (token: string) => void,
       signal?: AbortSignal,
+      onThinking?: (chunk: string) => void,
+      onThinkingEnd?: (durationMs: number) => void,
     ): Promise<APIStats> => {
       const startTime = Date.now();
       let fullContent = "";
+      let isThinking = false;
+      let thinkingStart = 0;
+
+      const processEvent = (event: StreamEvent) => {
+        if (event.type === "thinking") {
+          if (!isThinking) {
+            isThinking = true;
+            thinkingStart = Date.now();
+            onThinking?.("");
+          }
+          onThinking?.(event.text);
+        } else {
+          // content
+          if (isThinking) {
+            const duration = Date.now() - thinkingStart;
+            onThinkingEnd?.(duration);
+            isThinking = false;
+          }
+          fullContent += event.text;
+          onToken?.(event.text);
+        }
+      };
 
       const payload = buildPayload(messages, tools, true);
       const url = `${cleanBaseUrl}/chat/completions`;
@@ -109,9 +140,13 @@ export const createAPIClient = (baseUrl: string, apiKey: string, model: string):
         );
       }
 
-      for await (const token of parseStream(response)) {
-        fullContent += token;
-        onToken?.(token);
+      for await (const event of parseStream(response)) {
+        processEvent(event);
+      }
+
+      if (isThinking) {
+        const duration = Date.now() - thinkingStart;
+        onThinkingEnd?.(duration);
       }
 
       const tokensIn = estimateTokens(

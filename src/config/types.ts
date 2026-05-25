@@ -9,6 +9,7 @@ export interface UserConfig {
   default_model: string;
   max_parallel_agents: number;
   agent_block_prompt: boolean;
+  show_thinking: boolean;
 }
 
 export interface ProjectConfig {
@@ -23,10 +24,12 @@ export interface ResolvedConfig {
   agentBlockPrompt: boolean;
   sandboxPaths: string[];
   enabledTools: string[];
+  showThinking: boolean;
 }
 
 export const DEFAULTS: Omit<UserConfig, "models"> = {
   default_model: "",
   max_parallel_agents: 0,
   agent_block_prompt: true,
+  show_thinking: false,
 };

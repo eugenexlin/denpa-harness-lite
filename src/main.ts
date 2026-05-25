@@ -83,6 +83,7 @@ const main = (): void => {
       agentManager,
       toolRegistry,
       statsDB,
+      config.showThinking,
     );
     repl.run().finally(() => {
       repl.stop();
