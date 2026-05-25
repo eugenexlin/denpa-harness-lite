@@ -26,8 +26,10 @@ export const createOutputBuffer = (): OutputBuffer => {
   let scrollBuffer = "";
   let panelLines: PanelLine[] = [];
   let panelHeight = 0;
+  // dont forget it is one-indexed
   let cursorRow = 1;
-  let cursorCol = 0;
+  // dont forget it is one-indexed
+  let cursorCol = 1;
   let flushScheduled = false;
   let initialized = false;
   let lastResolvedPanel: string[] = [];
@@ -128,7 +130,7 @@ export const createOutputBuffer = (): OutputBuffer => {
     return lines.map((line) => {
       if (typeof line === "string") {
         // sanitize, make sure the stuff will fit.
-        const wraptextResult = wrapText(line, 0, 0, cols);
+        const wraptextResult = wrapText(line, 0, cols);
         return wraptextResult.textLines[0] ?? "";
       }
       if (line.type === "full-width-rule") {
@@ -151,11 +153,12 @@ export const createOutputBuffer = (): OutputBuffer => {
 
     if (scrollBufferFlush) {
       const cols = process.stdout.columns || 80;
-      const wrapTextResult = wrapText(scrollBufferFlush, 0, cursorCol, cols);
+      const wrapTextResult = wrapText(scrollBufferFlush, cursorCol, cols);
       const targetRow = Math.min(
         cursorRow + wrapTextResult.rowIncrementCount,
         totalRows,
       );
+      logFile(wrapTextResult.textLines);
       wrapTextResult.textLines.forEach((line, index) => {
         out += line;
         // add a new line for every line not the last one.
@@ -192,7 +195,7 @@ export const createOutputBuffer = (): OutputBuffer => {
   const buildPanel = (panelFlush: string[]): string => {
     let out = saveCursor();
     panelFlush.forEach((line, idx) => {
-      out += moveTo(cursorRow + idx + 1, 1);
+      out += moveTo(cursorRow + idx + 2, 1);
       out += line;
     });
     out += restoreCursor();

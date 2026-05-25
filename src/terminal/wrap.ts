@@ -55,26 +55,29 @@ const wrapLine = (line: string, maxWidth: number): [string, string] => {
 
 export const wrapText = (
   text: string,
-  leftMargin: number,
   startCursor: number,
   cols: number = process.stdout.columns ?? 80,
 ): WrapTextResult => {
   const lines = text.split("\n");
   const result: string[] = [];
 
+  if (startCursor <= 0) {
+    throw new Error("passing a 0 into a 1 indexed concept. please call the doctor")
+  }
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] ?? "";
     const isFirstLine = i === 0;
     const lineAvailableWidth = isFirstLine
-      ? Math.max(1, cols - startCursor)
-      : Math.max(1, cols - leftMargin);
+      ? Math.max(1, cols - startCursor + 1)
+      : Math.max(1, cols);
 
     let remaining = line;
     let isContinuation = false;
 
     while (true) {
       const currentAvailableWidth = isContinuation
-        ? Math.max(1, cols - leftMargin)
+        ? Math.max(1, cols)
         : lineAvailableWidth;
 
       const [part, rest] = wrapLine(remaining, currentAvailableWidth);
@@ -86,8 +89,18 @@ export const wrapText = (
     }
   }
 
-  const lastLine = result[result.length - 1] ?? "";
-  const newColumn = visualWidth(lastLine);
+  let newColumn = 1;
+  if (result.length === 0) {
+    // is this scenario even real
+    // leave it
+  } else if (result.length === 1) {
+    const onlyLine = result[0] ?? "";
+    newColumn = startCursor + visualWidth(onlyLine);
+  } else {
+    //it had a new line and started at zero, so get the width
+    const lastLine = result[result.length - 1] ?? "";
+    newColumn = 1 + visualWidth(lastLine);
+  }
 
   return {
     textLines: result,

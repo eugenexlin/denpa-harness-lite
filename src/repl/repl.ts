@@ -227,7 +227,7 @@ export const createRepl = (
   const formatUserInput = (input: string): string[] => {
     const cols = process.stdout.columns || 80;
     const wrapWidth = cols - 4;
-    const wrapResult = wrapText(input, 0, 0, wrapWidth);
+    const wrapResult = wrapText(input, 0, wrapWidth);
 
     const lines = [
       `${ANSI_STYLE.bg.gray900}${clearLine()}`,
