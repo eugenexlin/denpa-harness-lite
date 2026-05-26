@@ -1,7 +1,14 @@
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
-import { join, dirname } from "node:path";
-import type { UserConfig, ProjectConfig, ResolvedConfig, ModelConfig } from "./types";
-import { DEFAULTS } from "./types";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { join, dirname, resolve, isAbsolute } from "node:path";
+import type {
+  UserConfig,
+  ProjectConfig,
+  PermissionsConfig,
+  ResolvedConfig,
+  ModelConfig,
+  HarnessMode,
+} from "./types";
+import { DEFAULTS, DEFAULT_PERMISSIONS } from "./types";
 
 export const getHomeDir = (): string => process.env.HOME || process.env.USERPROFILE || "";
 
@@ -19,25 +26,52 @@ const loadJson = <T,>(filePath: string): T | null => {
 const saveJson = (filePath: string, data: unknown): void => {
   const dir = dirname(filePath);
   if (!existsSync(dir)) {
-    const { mkdirSync } = require("node:fs");
     mkdirSync(dir, { recursive: true });
   }
   writeFileSync(filePath, JSON.stringify(data, null, 2) + "\n", "utf-8");
+};
+
+const findGitRoot = (cwd: string): string | null => {
+  let current = isAbsolute(cwd) ? resolve(cwd) : resolve(process.cwd(), cwd);
+  const root = current.split(":")[0] + ":";
+  while (true) {
+    if (existsSync(join(current, ".git"))) {
+      return current;
+    }
+    const parent = dirname(current);
+    if (parent === current || parent === root) {
+      return null;
+    }
+    current = parent;
+  }
 };
 
 export interface ConfigManager {
   resolve: (cliOverrides?: { model?: string; apiKey?: string; baseUrl?: string; provider?: string }) => ResolvedConfig;
   saveUserConfig: (config: Partial<UserConfig>) => void;
   saveProjectConfig: (config: Partial<ProjectConfig>) => void;
+  savePermissions: (config: Partial<PermissionsConfig>, mode?: HarnessMode) => void;
   getUserConfig: () => UserConfig | null;
   getProjectConfig: () => ProjectConfig | null;
+  getPermissions: () => PermissionsConfig | null;
+  getMode: () => HarnessMode;
+  getProjectRoot: () => string | null;
 }
 
-export const createConfigManager = (projectRoot: string): ConfigManager => {
+export const createConfigManager = (cwd: string): ConfigManager => {
   const userConfigPath = join(resolveHome("~/.denpa/config.json"));
-  const projectConfigPath = join(projectRoot, ".denpa", "config.json");
+  const gitRoot = findGitRoot(cwd);
+  const mode: HarnessMode = gitRoot ? "project" : "system";
+  const projectRoot = gitRoot;
+
+  const projectConfigPath = gitRoot ? join(gitRoot, ".denpa", "config.json") : null;
+  const permissionsPath = gitRoot
+    ? join(gitRoot, ".denpa", "permissions.json")
+    : join(resolveHome("~/.denpa/permissions.json"));
+
   let userConfig: UserConfig | null = null;
   let projectConfig: ProjectConfig | null = null;
+  let permissions: PermissionsConfig | null = null;
 
   const loadUserConfig = (): UserConfig => {
     const raw = loadJson<UserConfig>(userConfigPath);
@@ -52,11 +86,27 @@ export const createConfigManager = (projectRoot: string): ConfigManager => {
   };
 
   const loadProjectConfig = (): ProjectConfig => {
+    if (!projectConfigPath) return {};
     const raw = loadJson<ProjectConfig>(projectConfigPath);
+    return raw ?? {};
+  };
+
+  const loadPermissions = (): PermissionsConfig => {
+    const raw = loadJson<PermissionsConfig>(permissionsPath);
     return {
-      sandbox_paths: raw?.sandbox_paths ?? ["."],
-      enabled_tools: raw?.enabled_tools ?? [],
+      sandbox_paths: raw?.sandbox_paths ?? DEFAULT_PERMISSIONS.sandbox_paths,
+      tools: raw?.tools ?? DEFAULT_PERMISSIONS.tools,
     };
+  };
+
+  const mergeModels = (user: UserConfig, project: ProjectConfig): Record<string, ModelConfig> => {
+    const merged = { ...user.models };
+    if (project.models) {
+      for (const [name, config] of Object.entries(project.models)) {
+        merged[name] = config;
+      }
+    }
+    return merged;
   };
 
   const getModelFromEnv = (): ModelConfig | null => {
@@ -79,19 +129,26 @@ export const createConfigManager = (projectRoot: string): ConfigManager => {
     }): ResolvedConfig => {
       userConfig ??= loadUserConfig();
       projectConfig ??= loadProjectConfig();
+      permissions ??= loadPermissions();
 
-      const modelName = cliOverrides?.model ?? userConfig.default_model;
+      const mergedModels = mergeModels(userConfig, projectConfig);
+
+      const defaultModelName =
+        cliOverrides?.model ??
+        projectConfig?.default_model ??
+        userConfig.default_model;
+
       let model: ModelConfig;
-
       const envModel = getModelFromEnv();
+
       if (envModel && (cliOverrides?.apiKey || cliOverrides?.baseUrl)) {
         model = {
           ...envModel,
           ...(cliOverrides?.apiKey ? { api_key: cliOverrides.apiKey } : {}),
           ...(cliOverrides?.baseUrl ? { base_url: cliOverrides.baseUrl } : {}),
         };
-      } else if (modelName && userConfig.models[modelName]) {
-        model = userConfig.models[modelName];
+      } else if (defaultModelName && mergedModels[defaultModelName]) {
+        model = mergedModels[defaultModelName];
       } else if (envModel) {
         model = envModel;
       } else {
@@ -102,29 +159,53 @@ export const createConfigManager = (projectRoot: string): ConfigManager => {
 
       return {
         model,
-        defaultModelName: modelName,
-        maxParallelAgents: userConfig.max_parallel_agents,
-        agentBlockPrompt: userConfig.agent_block_prompt,
-        sandboxPaths: projectConfig.sandbox_paths,
-        enabledTools: projectConfig.enabled_tools,
-        showThinking: userConfig.show_thinking,
+        models: mergedModels,
+        defaultModelName,
+        maxParallelAgents: projectConfig?.max_parallel_agents ?? userConfig.max_parallel_agents,
+        agentBlockPrompt: projectConfig?.agent_block_prompt ?? userConfig.agent_block_prompt,
+        sandboxPaths: permissions.sandbox_paths ?? DEFAULT_PERMISSIONS.sandbox_paths ?? ["."],
+        showThinking: projectConfig?.show_thinking ?? userConfig.show_thinking,
+        mode,
+        projectRoot,
+        permissions,
       };
     },
 
     saveUserConfig: (config: Partial<UserConfig>): void => {
+      userConfig ??= loadUserConfig();
       const merged = { ...userConfig, ...config } as UserConfig;
       saveJson(userConfigPath, merged);
       userConfig = merged;
     },
 
     saveProjectConfig: (config: Partial<ProjectConfig>): void => {
+      if (!projectConfigPath) {
+        throw new Error("Cannot save project config in system mode");
+      }
+      projectConfig ??= loadProjectConfig();
       const merged = { ...projectConfig, ...config } as ProjectConfig;
       saveJson(projectConfigPath, merged);
       projectConfig = merged;
     },
 
+    savePermissions: (config: Partial<PermissionsConfig>, targetMode?: HarnessMode): void => {
+      const targetPath = targetMode === "system"
+        ? join(resolveHome("~/.denpa/permissions.json"))
+        : permissionsPath;
+      permissions ??= loadPermissions();
+      const merged = { ...permissions, ...config } as PermissionsConfig;
+      saveJson(targetPath, merged);
+      permissions = merged;
+    },
+
     getUserConfig: (): UserConfig | null => userConfig,
 
     getProjectConfig: (): ProjectConfig | null => projectConfig,
+
+    getPermissions: (): PermissionsConfig | null => permissions,
+
+    getMode: (): HarnessMode => mode,
+
+    getProjectRoot: (): string | null => projectRoot,
   };
 };

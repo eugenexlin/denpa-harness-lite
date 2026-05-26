@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { join, resolve, relative, isAbsolute } from "node:path";
 import { Glob } from "bun";
+import { isSensitivePath, getSensitivePathReason } from "../../config/sensitive-paths";
 import type { ToolResult } from "./types";
 
 export interface FilesystemTool {
@@ -10,8 +11,23 @@ export interface FilesystemTool {
   find_files: (args: Record<string, unknown>) => Promise<ToolResult>;
 }
 
-export const createFilesystemTool = (sandboxPaths: string[] = ["."]): FilesystemTool => {
+export interface FilesystemToolOptions {
+  sandboxPaths?: string[];
+  onSensitivePath?: (path: string, reason: string) => void;
+}
+
+export const createFilesystemTool = (options: FilesystemToolOptions = {}): FilesystemTool => {
+  const sandboxPaths = options.sandboxPaths ?? ["."];
+  const onSensitivePath = options.onSensitivePath;
   const resolvedPaths = sandboxPaths.map((p) => resolve(p));
+
+  const warnSensitive = (resolved: string): void => {
+    if (isSensitivePath(resolved)) {
+      const reason = getSensitivePathReason(resolved) ?? "sensitive path";
+      process.stderr.write(`⚠ Accessing sensitive path: ${resolved} (${reason})\n`);
+      onSensitivePath?.(resolved, reason);
+    }
+  };
 
   const validatePath = (requestedPath: string): string => {
     const resolved = isAbsolute(requestedPath)
@@ -20,6 +36,7 @@ export const createFilesystemTool = (sandboxPaths: string[] = ["."]): Filesystem
 
     for (const sandbox of resolvedPaths) {
       if (resolved.startsWith(sandbox)) {
+        warnSensitive(resolved);
         return resolved;
       }
     }

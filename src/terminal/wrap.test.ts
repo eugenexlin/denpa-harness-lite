@@ -180,6 +180,29 @@ describe("wrapText", () => {
     });
   });
 
+  describe("unusual characters", () => {
+    it("ball lol 🟢", () => {
+      const line = "Success 🟢 I'm up.";
+      const result = wrapText(line, 1, 10);
+      expect(result.textLines).toEqual(["Success ", "🟢 I'm up."]);
+    });
+    it("ball lol 🟢 sequence", () => {
+      const sequence = [
+        "Success ",
+        "🟢 ",
+        "I'm up.",
+      ];
+      const expectedColumn = [9, 12, 19];
+      let col = 1;
+      sequence.forEach((line, i) => {
+        const wrapResult = wrapText(line, col, 80);
+        expectedColumn;
+        col = wrapResult.newColumn;
+        expect(col).toBe(expectedColumn[i] ?? 0);
+      });
+    });
+  });
+
   describe("multiple wrapping", () => {
     it("some scenario 1", () => {
       const sequence = [

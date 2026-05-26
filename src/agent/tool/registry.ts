@@ -1,5 +1,11 @@
 import type { ToolDefinition, ToolHandler, ToolResult } from "./types";
-import { createFilesystemTool } from "./filesystem";
+import type { PermissionsConfig } from "../../config/types";
+import { createFilesystemTool, type FilesystemToolOptions } from "./filesystem";
+import {
+  loadCustomTools,
+  checkToolMtimes,
+  type LoadedTool,
+} from "./custom-tools";
 
 export interface ToolRegistry {
   register: (name: string, handler: ToolHandler, definition: ToolDefinition) => void;
@@ -7,10 +13,27 @@ export interface ToolRegistry {
   getDefinitions: () => ToolDefinition[];
   execute: (name: string, args: Record<string, unknown>) => Promise<ToolResult>;
   list: () => string[];
+  getDeniedTools: () => string[];
 }
 
-export const createToolRegistry = (): ToolRegistry => {
+export interface ToolApprovalCallback {
+  (name: string, definition: ToolDefinition): Promise<"approved" | "denied">;
+}
+
+export const createToolRegistry = (
+  permissions: PermissionsConfig = {},
+  onToolPending?: ToolApprovalCallback,
+): ToolRegistry => {
   const tools = new Map<string, { handler: ToolHandler; definition: ToolDefinition }>();
+  const deniedLog: string[] = [];
+
+  const isToolApproved = (name: string): boolean => {
+    const toolPerms = permissions.tools?.[name];
+    if (!toolPerms) return false;
+    if (toolPerms.state === "denied") return false;
+    if (toolPerms.state === "approved") return true;
+    return false;
+  };
 
   return {
     register: (name: string, handler: ToolHandler, definition: ToolDefinition): void => {
@@ -22,7 +45,9 @@ export const createToolRegistry = (): ToolRegistry => {
     },
 
     getDefinitions: (): ToolDefinition[] => {
-      return Array.from(tools.values()).map((t) => t.definition);
+      return Array.from(tools.entries())
+        .filter(([name]) => isToolApproved(name))
+        .map(([, t]) => t.definition);
     },
 
     execute: async (name: string, args: Record<string, unknown>): Promise<ToolResult> => {
@@ -31,25 +56,83 @@ export const createToolRegistry = (): ToolRegistry => {
         return { content: `Unknown tool: ${name}`, isError: true };
       }
 
-      try {
-        return await tool.handler(args);
-      } catch (err) {
+      if (isToolApproved(name)) {
+        try {
+          return await tool.handler(args);
+        } catch (err) {
+          return {
+            content: `Tool error: ${err instanceof Error ? err.message : String(err)}`,
+            isError: true,
+          };
+        }
+      }
+
+      const toolPerms = permissions.tools?.[name];
+      if (toolPerms?.state === "denied") {
+        deniedLog.push(name);
         return {
-          content: `Tool error: ${err instanceof Error ? err.message : String(err)}`,
+          content: `Tool '${name}' is not approved for use.`,
           isError: true,
         };
       }
+
+      if (onToolPending) {
+        const decision = await onToolPending(name, tool.definition);
+        if (decision === "approved") {
+          try {
+            return await tool.handler(args);
+          } catch (err) {
+            return {
+              content: `Tool error: ${err instanceof Error ? err.message : String(err)}`,
+              isError: true,
+            };
+          }
+        }
+        deniedLog.push(name);
+        return {
+          content: `Tool '${name}' was not approved for use.`,
+          isError: true,
+        };
+      }
+
+      deniedLog.push(name);
+      return {
+        content: `Tool '${name}' requires approval before use.`,
+        isError: true,
+      };
     },
 
     list: (): string[] => {
-      return Array.from(tools.keys());
+      return Array.from(tools.keys()).filter((name) => isToolApproved(name));
+    },
+
+    getDeniedTools: (): string[] => {
+      return deniedLog;
     },
   };
 };
 
-export const createDefaultRegistry = (sandboxPaths: string[]): ToolRegistry => {
-  const registry = createToolRegistry();
-  const fs = createFilesystemTool(sandboxPaths);
+export interface DefaultRegistryOptions {
+  sandboxPaths?: string[];
+  permissions?: PermissionsConfig;
+  onToolPending?: ToolApprovalCallback;
+  onSensitivePath?: (path: string, reason: string) => void;
+  customToolsDirs?: string[];
+}
+
+export const createDefaultRegistry = async (options: DefaultRegistryOptions = {}): Promise<ToolRegistry> => {
+  const registry = createToolRegistry(options.permissions, options.onToolPending);
+  const fs = createFilesystemTool({
+    sandboxPaths: options.sandboxPaths,
+    onSensitivePath: options.onSensitivePath,
+  });
+
+  const customToolsDirs = options.customToolsDirs ?? [];
+  const loadedCustomTools: LoadedTool[] = [];
+  for (const dir of customToolsDirs) {
+    const loaded = await loadCustomTools(dir);
+    loadedCustomTools.push(...loaded);
+  }
 
   registry.register(
     "read_file",
@@ -146,6 +229,10 @@ export const createDefaultRegistry = (sandboxPaths: string[]): ToolRegistry => {
       },
     },
   );
+
+  for (const tool of loadedCustomTools) {
+    registry.register(tool.name, tool.handler, tool.definition);
+  }
 
   return registry;
 };

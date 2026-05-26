@@ -73,6 +73,7 @@ function main() {
     let i = 0;
     while (i < data.length) {
       const byte = data[i];
+      
       // Handle UTF-8 multi-byte sequences
       if (byte < 0x80) {
         // Single byte ASCII

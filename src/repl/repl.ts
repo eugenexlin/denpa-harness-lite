@@ -2,13 +2,15 @@ import { createInputManager, type InputManager } from "../terminal/input";
 import type { APIClient } from "../api/client";
 import type { Session } from "../agent/session";
 import type { SubagentManager } from "../agent/subagent-manager";
-import type { ToolRegistry } from "../agent/tool/registry";
+import type { ToolRegistry, ToolApprovalCallback } from "../agent/tool/registry";
 import type { StatsDB } from "../stats/db";
 import type { ToolDefinition } from "../api/types";
 import type { Message } from "../api/types";
+import type { ToolDefinition as ToolDef } from "../agent/tool/types";
 import {
   fgGray,
   fgRed,
+  fgYellow,
   bold,
   clearFromCursor,
   ANSI_STYLE,
@@ -40,14 +42,21 @@ export interface Repl {
   stop: () => void;
 }
 
+export interface ReplOptions {
+  showThinking?: boolean;
+  onToolPending?: ToolApprovalCallback;
+}
+
 export const createRepl = (
   client: APIClient,
   session: Session,
   agentManager: SubagentManager,
   toolRegistry: ToolRegistry,
   statsDB: StatsDB,
-  showThinking: boolean = false,
+  options: ReplOptions = {},
 ): Repl => {
+  const showThinking = options.showThinking ?? false;
+  const onToolPending = options.onToolPending;
   let userInput: string = "";
   let userInputWithAnsiCursor: string = "";
 
@@ -123,6 +132,39 @@ export const createRepl = (
       return `${minutes}:${String(seconds % 60).padStart(2, "0")}`;
     }
     return `${seconds}s`;
+  };
+
+  const promptToolApproval: ToolApprovalCallback = async (
+    name: string,
+    definition: ToolDef,
+  ): Promise<"approved" | "denied"> => {
+    const fn = definition.function;
+    outputBuffer.scroll(fgYellow(`\n⚠ Tool '${name}' requires approval:\n`));
+    outputBuffer.scroll(`  ${fn.description}\n`);
+    const params = Object.entries(fn.parameters.properties)
+      .map(([k, v]) => `${k} (${v.type})`)
+      .join(", ");
+    if (params) {
+      outputBuffer.scroll(`  Params: ${params}\n`);
+    }
+    outputBuffer.scroll("Approve? [y/N]: ");
+
+    return new Promise((resolve) => {
+      const onData = (data: Buffer) => {
+        const char = data.toString().trim().toLowerCase();
+        process.stdin.removeListener("data", onData);
+        process.stdin.setRawMode(true);
+        if (char === "y" || char === "yes") {
+          outputBuffer.scroll("approved\n");
+          resolve("approved");
+        } else {
+          outputBuffer.scroll("denied\n");
+          resolve("denied");
+        }
+      };
+      process.stdin.setRawMode(false);
+      process.stdin.on("data", onData);
+    });
   };
 
   const setPanelState = (state: PanelState): void => {
