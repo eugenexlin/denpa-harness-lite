@@ -1,3 +1,5 @@
+import type { ToolDefinition } from "../agent/tool/types";
+
 export interface Message {
   role: "system" | "user" | "assistant";
   content: string;
@@ -59,14 +61,7 @@ export interface StreamChunk {
   }[];
 }
 
-export interface ToolDefinition {
-  type: "function";
-  function: {
-    name: string;
-    description: string;
-    parameters: Record<string, unknown>;
-  };
-}
+export type { ToolDefinition };
 
 export interface APIStats {
   model: string;

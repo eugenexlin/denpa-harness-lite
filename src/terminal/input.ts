@@ -17,6 +17,28 @@ export interface InputManager {
   clearExitTimeout: () => void;
 }
 
+const segmenter = new Intl.Segmenter();
+
+const graphemeIndexToStringIndex = (str: string, graphemeIdx: number): number => {
+  let idx = 0;
+  let g = 0;
+  for (const seg of segmenter.segment(str)) {
+    if (g === graphemeIdx) return idx;
+    idx += seg.segment.length;
+    g++;
+  }
+  return str.length;
+};
+
+const countGraphemes = (str: string): number => {
+  let count = 0;
+  for (const _ of segmenter.segment(str)) count++;
+  return count;
+};
+
+const getGraphemes = (str: string): string[] =>
+  [...segmenter.segment(str)].map(s => s.segment);
+
 export const createInputManager = (props: InputManagerProps): InputManager => {
   const { onUserInputUpdate, onSubmit, onTerminate } = props;
   let buffer = "";
@@ -43,42 +65,54 @@ export const createInputManager = (props: InputManagerProps): InputManager => {
   };
 
   const handleUpdateUserInput = (): void => {
-    let output = buffer;
-    let padOutput = output.padEnd(cursor + 1, " ");
+    const strIdx = graphemeIndexToStringIndex(buffer, cursor);
+    const beforeCursor = buffer.slice(0, strIdx);
+    const graphemes = getGraphemes(buffer);
+    const atCursor = graphemes[cursor] || " ";
+    const afterCursor = buffer.slice(strIdx + (atCursor === " " ? 0 : atCursor.length));
     const formattedInput = isCursorBlinkVisible
-      ? padOutput.slice(0, cursor) +
+      ? beforeCursor +
         ANSI_STYLE.reverse +
-        padOutput.charAt(cursor) +
+        atCursor +
         ANSI_STYLE.disable.reverse +
-        padOutput.slice(cursor + 1)
-      : padOutput;
-    onUserInputUpdate(output, formattedInput);
+        afterCursor
+      : buffer;
+    onUserInputUpdate(buffer, formattedInput);
   };
 
   const insertChar = (char: string): void => {
-    buffer = buffer.slice(0, cursor) + char + buffer.slice(cursor);
+    const strIdx = graphemeIndexToStringIndex(buffer, cursor);
+    buffer = buffer.slice(0, strIdx) + char + buffer.slice(strIdx);
     cursor++;
   };
 
   const deleteCharForward = (): void => {
-    if (cursor < buffer.length) {
-      buffer = buffer.slice(0, cursor) + buffer.slice(cursor + 1);
+    const graphemeLen = countGraphemes(buffer);
+    if (cursor < graphemeLen) {
+      const strIdx = graphemeIndexToStringIndex(buffer, cursor);
+      const nextStrIdx = graphemeIndexToStringIndex(buffer, cursor + 1);
+      buffer = buffer.slice(0, strIdx) + buffer.slice(nextStrIdx);
     }
   };
 
   const deleteBeforeCursor = (): void => {
     if (cursor > 0) {
       cursor--;
-      buffer = buffer.slice(0, cursor) + buffer.slice(cursor + 1);
+      const strIdx = graphemeIndexToStringIndex(buffer, cursor);
+      const nextStrIdx = graphemeIndexToStringIndex(buffer, cursor + 1);
+      buffer = buffer.slice(0, strIdx) + buffer.slice(nextStrIdx);
     }
   };
 
   const deleteWord = (): void => {
     if (cursor === 0) return;
+    const graphemes = getGraphemes(buffer);
     let pos = cursor - 1;
-    while (pos > 0 && buffer[pos - 1] === " ") pos--;
-    while (pos > 0 && buffer[pos - 1] !== " ") pos--;
-    buffer = buffer.slice(0, pos) + buffer.slice(cursor);
+    while (pos > 0 && graphemes[pos - 1] === " ") pos--;
+    while (pos > 0 && graphemes[pos - 1] !== " ") pos--;
+    const strPos = graphemeIndexToStringIndex(buffer, pos);
+    const strCursor = graphemeIndexToStringIndex(buffer, cursor);
+    buffer = buffer.slice(0, strPos) + buffer.slice(strCursor);
     cursor = pos;
   };
 
@@ -89,7 +123,7 @@ export const createInputManager = (props: InputManagerProps): InputManager => {
   };
 
   const moveCursorRight = (): void => {
-    if (cursor < buffer.length) {
+    if (cursor < countGraphemes(buffer)) {
       cursor++;
     }
   };
@@ -99,22 +133,25 @@ export const createInputManager = (props: InputManagerProps): InputManager => {
   };
 
   const moveCursorToEnd = (): void => {
-    cursor = buffer.length;
+    cursor = countGraphemes(buffer);
   };
 
   const moveCursorBackwardWord = (): void => {
     if (cursor === 0) return;
+    const graphemes = getGraphemes(buffer);
     let pos = cursor - 1;
-    while (pos > 0 && buffer[pos - 1] === " ") pos--;
-    while (pos > 0 && buffer[pos - 1] !== " ") pos--;
+    while (pos > 0 && graphemes[pos - 1] === " ") pos--;
+    while (pos > 0 && graphemes[pos - 1] !== " ") pos--;
     cursor = pos;
   };
 
   const moveCursorForwardWord = (): void => {
-    if (cursor >= buffer.length) return;
+    const graphemeLen = countGraphemes(buffer);
+    if (cursor >= graphemeLen) return;
+    const graphemes = getGraphemes(buffer);
     let pos = cursor;
-    while (pos < buffer.length && buffer[pos] === " ") pos++;
-    while (pos < buffer.length && buffer[pos] !== " ") pos++;
+    while (pos < graphemeLen && graphemes[pos] === " ") pos++;
+    while (pos < graphemeLen && graphemes[pos] !== " ") pos++;
     cursor = pos;
   };
 
@@ -227,7 +264,7 @@ export const createInputManager = (props: InputManagerProps): InputManager => {
   const handleData = (chunk: Buffer | string): void => {
     if (isInputSupressed) return;
     const str = typeof chunk === "string" ? chunk : chunk.toString("utf-8");
-    const chars = str.split("");
+    const chars = getGraphemes(str);
 
     cursorInterval && clearInterval(cursorInterval);
     isCursorBlinkVisible = true;
@@ -331,7 +368,7 @@ export const createInputManager = (props: InputManagerProps): InputManager => {
         continue;
       }
 
-      if (char.length === 1 && char >= " ") {
+      if (char[0] != null && char[0] >= " ") {
         clearExitTimeout();
         insertChar(char);
         handleUpdateUserInput();
@@ -379,7 +416,7 @@ export const createInputManager = (props: InputManagerProps): InputManager => {
     getCursor: (): number => cursor,
 
     setCursor: (pos: number): void => {
-      cursor = Math.max(0, Math.min(pos, buffer.length));
+      cursor = Math.max(0, Math.min(pos, countGraphemes(buffer)));
     },
 
     clearExitTimeout: (): void => clearExitTimeout(),

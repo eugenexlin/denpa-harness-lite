@@ -45,10 +45,10 @@ const DOUBLE_WIDTH_RANGES: [number, number][] = [
   [0x1f300, 0x1f5ff],
   [0x1f600, 0x1f64f],
   [0x1f680, 0x1f6ff],
-  
+
   //Colored Emoji Shapes
-  [0x1F7E0, 0x1F7EB],
-  [0x1F7F0, 0x1F7F0],
+  [0x1f7e0, 0x1f7eb],
+  [0x1f7f0, 0x1f7f0],
 
   //Supplemental Symbols and Pictographs
   [0x1f900, 0x1f9ff],

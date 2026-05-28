@@ -1,6 +1,8 @@
 import { readdirSync, statSync, existsSync, readFileSync } from "node:fs";
-import { join, resolve, isAbsolute } from "node:path";
+import { join, resolve } from "node:path";
 import type { ToolDefinition, ToolHandler, ToolResult } from "./types";
+import { createToolContext } from "./context";
+import type { ToolContext, ToolContextOptions } from "./context";
 
 export interface ToolManifest {
   name: string;
@@ -24,6 +26,7 @@ export interface LoadedTool {
   definition: ToolDefinition;
   handler: ToolHandler;
   fileMtimes: Record<string, number>;
+  context?: ToolContext;
 }
 
 const MANIFEST_FILE = "tool.json";
@@ -108,9 +111,12 @@ export const discoverTools = (toolsDir: string): string[] => {
 
 export const loadCustomTools = async (
   toolsDir: string,
+  contextOptions?: ToolContextOptions,
 ): Promise<LoadedTool[]> => {
   const toolDirs = discoverTools(toolsDir);
   const loaded: LoadedTool[] = [];
+
+  const context = contextOptions ? createToolContext(contextOptions) : undefined;
 
   for (const dir of toolDirs) {
     const manifest = loadManifest(dir);
@@ -119,14 +125,20 @@ export const loadCustomTools = async (
     const mtimes = getDirMtimes(dir);
     if (!mtimes) continue;
 
-    const handler = await loadHandler(dir, manifest);
-    if (!handler) continue;
+    const rawHandler = await loadHandler(dir, manifest);
+    if (!rawHandler) continue;
+
+    const handler: ToolHandler = async (args: Record<string, unknown>): Promise<ToolResult> => {
+      const enriched = context ? { ...args, __context: context } : args;
+      return rawHandler(enriched);
+    };
 
     loaded.push({
       name: manifest.name,
       definition: toToolDefinition(manifest),
       handler,
       fileMtimes: mtimes,
+      context,
     });
   }
 

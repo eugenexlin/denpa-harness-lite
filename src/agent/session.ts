@@ -1,4 +1,4 @@
-import type { Message, ToolDefinition, APIStats } from "../api/types";
+import type { Message } from "../api/types";
 
 export interface Session {
   getMessages: () => Message[];

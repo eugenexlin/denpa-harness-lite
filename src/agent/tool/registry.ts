@@ -6,6 +6,7 @@ import {
   checkToolMtimes,
   type LoadedTool,
 } from "./custom-tools";
+import type { ToolContextOptions } from "./context";
 
 export interface ToolRegistry {
   register: (name: string, handler: ToolHandler, definition: ToolDefinition) => void;
@@ -118,6 +119,7 @@ export interface DefaultRegistryOptions {
   onToolPending?: ToolApprovalCallback;
   onSensitivePath?: (path: string, reason: string) => void;
   customToolsDirs?: string[];
+  toolContextOptions?: ToolContextOptions;
 }
 
 export const createDefaultRegistry = async (options: DefaultRegistryOptions = {}): Promise<ToolRegistry> => {
@@ -128,9 +130,12 @@ export const createDefaultRegistry = async (options: DefaultRegistryOptions = {}
   });
 
   const customToolsDirs = options.customToolsDirs ?? [];
+  const contextOptions: ToolContextOptions | undefined = options.toolContextOptions ?? {
+    sandboxPaths: options.sandboxPaths,
+  };
   const loadedCustomTools: LoadedTool[] = [];
   for (const dir of customToolsDirs) {
-    const loaded = await loadCustomTools(dir);
+    const loaded = await loadCustomTools(dir, contextOptions);
     loadedCustomTools.push(...loaded);
   }
 

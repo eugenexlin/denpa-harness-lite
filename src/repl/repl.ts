@@ -4,9 +4,7 @@ import type { Session } from "../agent/session";
 import type { SubagentManager } from "../agent/subagent-manager";
 import type { ToolRegistry, ToolApprovalCallback } from "../agent/tool/registry";
 import type { StatsDB } from "../stats/db";
-import type { ToolDefinition } from "../api/types";
 import type { Message } from "../api/types";
-import type { ToolDefinition as ToolDef } from "../agent/tool/types";
 import {
   fgGray,
   fgRed,
@@ -136,7 +134,7 @@ export const createRepl = (
 
   const promptToolApproval: ToolApprovalCallback = async (
     name: string,
-    definition: ToolDef,
+    definition,
   ): Promise<"approved" | "denied"> => {
     const fn = definition.function;
     outputBuffer.scroll(fgYellow(`\n⚠ Tool '${name}' requires approval:\n`));

@@ -23,7 +23,6 @@ export interface OutputBuffer {
 export const createOutputBuffer = (): OutputBuffer => {
   let scrollBuffer = "";
   let panelLines: PanelLine[] = [];
-  let panelHeight = 0;
   // dont forget it is one-indexed
   let cursorRow = 1;
   // dont forget it is one-indexed

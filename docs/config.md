@@ -166,69 +166,26 @@ From highest to lowest priority:
 
 ## Custom Tools
 
-Custom tools extend the harness with user-defined functionality. Each tool is a directory containing a manifest and handler code.
+Custom tools extend the harness with user-defined functionality. See **[Tools](tools.md)** for full conventions, naming rules, handler contract, ToolContext API, and examples.
 
-### Folder Structure
-
-```
-.denpa/tools/
-  my-tool/
-    tool.json        # manifest
-    handler.ts       # handler code (or .js, .mts, .mjs)
-    utils.ts         # optional supporting files
-```
+### Quick Reference
 
 **Locations:**
 - Project mode: `<projectRoot>/.denpa/tools/`
 - System mode: `~/.denpa/tools/`
 
-### Manifest (`tool.json`)
-
-The manifest mirrors the OpenAI function calling schema:
-
-```json
-{
-  "name": "my_tool",
-  "description": "Does something useful.",
-  "parameters": {
-    "type": "object",
-    "properties": {
-      "input": {
-        "type": "string",
-        "description": "The input value"
-      }
-    },
-    "required": ["input"]
-  }
-}
+**Structure:**
+```
+.denpa/tools/<tool-name>/
+  tool.json        # manifest (required)
+  handler.ts       # handler (required, .js/.mts/.mjs also supported)
 ```
 
-| Key | Type | Description |
-|-----|------|-------------|
-| `name` | `string` | Tool name (must be unique across all tools) |
-| `description` | `string` | Description shown to the LLM and during approval |
-| `parameters` | `object` | JSON schema for tool parameters |
-
-### Handler (`handler.ts`)
-
-The handler is a TypeScript or JavaScript file that exports a default function:
-
+**Type imports:**
 ```typescript
-import type { ToolResult } from "denpa-harness-lite/src/agent/tool/types";
-
-export default async (args: Record<string, unknown>): Promise<ToolResult> => {
-  const input = args.input as string;
-  // ... do something ...
-  return { content: `Processed: ${input}` };
-};
+import type { ToolResult, ToolContext } from "denpa-harness-lite/src/agent/tool/exports";
 ```
 
-The handler receives the tool arguments and returns a `ToolResult` with `content` (and optionally `isError`).
+**ToolContext:** Custom tools receive `args.__context` with sandbox validation helpers (`validatePath`, `warnSensitive`, `isSensitivePath`). Optional — only needed for filesystem access.
 
-Supported handler file extensions: `.ts`, `.js`, `.mts`, `.mjs`.
-
-### Approval and Mtime Tracking
-
-Custom tools follow the same approval system as built-in tools. Additionally, the harness tracks the modification time of **all files** in the tool directory. If any file changes (including supporting files like `utils.ts`), the tool requires re-approval.
-
-This ensures that changes to tool code are always reviewed before execution.
+**Approval:** Same as built-in tools. Mtime tracking on all files in the tool directory triggers re-approval on changes.
