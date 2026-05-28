@@ -10,6 +10,7 @@ export interface UserConfig {
   max_parallel_agents: number;
   agent_block_prompt: boolean;
   show_thinking: boolean;
+  system_prompt_append?: string;
 }
 
 export interface ProjectConfig {
@@ -18,6 +19,7 @@ export interface ProjectConfig {
   max_parallel_agents?: number;
   agent_block_prompt?: boolean;
   show_thinking?: boolean;
+  system_prompt_append?: string;
 }
 
 export interface ToolPermission {
@@ -40,6 +42,7 @@ export interface ResolvedConfig {
   agentBlockPrompt: boolean;
   sandboxPaths: string[];
   showThinking: boolean;
+  systemPromptAppend: string;
   mode: HarnessMode;
   projectRoot: string | null;
   permissions: PermissionsConfig;
@@ -50,6 +53,7 @@ export const DEFAULTS: Omit<UserConfig, "models"> = {
   max_parallel_agents: 0,
   agent_block_prompt: true,
   show_thinking: false,
+  system_prompt_append: "",
 };
 
 export const DEFAULT_PERMISSIONS: PermissionsConfig = {

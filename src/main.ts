@@ -9,6 +9,7 @@ import {
   createDefaultRegistry,
   type ToolApprovalCallback,
 } from "./agent/tool/registry";
+import { buildSystemPrompt } from "./agent/prompt";
 import { createRepl } from "./repl/repl";
 import { runCLI } from "./cli/cli";
 import { ANSI_STYLE, fgGray, fgYellow } from "./terminal/ansi";
@@ -66,10 +67,8 @@ const main = async (): Promise<void> => {
     config.defaultModelName,
   );
 
-  // Init session
-  const session = createSession(
-    "You are a helpful coding assistant. Be concise and direct.",
-  );
+  // Init session (placeholder prompt, updated after tools are loaded)
+  const session = createSession();
 
   // Init tools
   const onToolPending: ToolApprovalCallback | undefined =
@@ -117,10 +116,22 @@ const main = async (): Promise<void> => {
     customToolsDirs,
   });
 
+  // Build system prompt with runtime context
+  const systemPrompt = buildSystemPrompt({
+    cwd: process.cwd(),
+    platform: process.platform,
+    projectRoot: config.projectRoot,
+    sandboxPaths: config.sandboxPaths,
+    toolNames: toolRegistry.list(),
+    userAppend: config.systemPromptAppend,
+  });
+
+  session.setSystemPrompt(systemPrompt);
+
   // Init subagent manager
   const agentManager = createSubagentManager(
     client,
-    "You are a helpful coding assistant. Be concise and direct.",
+    systemPrompt,
     toolRegistry.getDefinitions(),
   );
 

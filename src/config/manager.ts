@@ -82,6 +82,7 @@ export const createConfigManager = (cwd: string): ConfigManager => {
       max_parallel_agents: raw?.max_parallel_agents ?? DEFAULTS.max_parallel_agents,
       agent_block_prompt: raw?.agent_block_prompt ?? DEFAULTS.agent_block_prompt,
       show_thinking: raw?.show_thinking ?? DEFAULTS.show_thinking,
+      system_prompt_append: raw?.system_prompt_append ?? DEFAULTS.system_prompt_append,
     };
   };
 
@@ -165,6 +166,7 @@ export const createConfigManager = (cwd: string): ConfigManager => {
         agentBlockPrompt: projectConfig?.agent_block_prompt ?? userConfig.agent_block_prompt,
         sandboxPaths: permissions.sandbox_paths ?? DEFAULT_PERMISSIONS.sandbox_paths ?? ["."],
         showThinking: projectConfig?.show_thinking ?? userConfig.show_thinking,
+        systemPromptAppend: projectConfig?.system_prompt_append ?? userConfig.system_prompt_append ?? "",
         mode,
         projectRoot,
         permissions,
