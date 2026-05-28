@@ -2,38 +2,21 @@ import { createInputManager, type InputManager } from "../terminal/input";
 import type { APIClient } from "../api/client";
 import type { Session } from "../agent/session";
 import type { SubagentManager } from "../agent/subagent-manager";
-import type { ToolRegistry, ToolApprovalCallback } from "../agent/tool/registry";
+import type {
+  ToolRegistry,
+  ToolApprovalCallback,
+} from "../agent/tool/registry";
 import type { StatsDB } from "../stats/db";
-import type { Message } from "../api/types";
 import {
   fgGray,
   fgRed,
   fgYellow,
-  bold,
   clearFromCursor,
   ANSI_STYLE,
-  ESC,
-  clearLine,
 } from "../terminal/ansi";
-import { wrapText } from "../terminal/wrap";
-import {
-  createOutputBuffer,
-  type PanelLine,
-} from "./output-buffer";
-
-export type PanelState =
-  | { type: "idle" }
-  | { type: "typing"; text: string }
-  | { type: "streaming"; model: string; startTime: number }
-  | {
-    type: "agent-running";
-    agents: { id: number; status: string; duration: number }[];
-  }
-  | {
-    type: "agent-complete";
-    results: { id: number; content: string; duration: number }[];
-  }
-  | { type: "error"; message: string };
+import { createOutputBuffer } from "./output-buffer";
+import { formatThinking } from "./format-thinking";
+import { formatUserInputPanel, renderPanel, type PanelLine } from "./panel";
 
 export interface Repl {
   run: () => Promise<void>;
@@ -57,10 +40,13 @@ export const createRepl = (
   const onToolPending = options.onToolPending;
   let userInput: string = "";
   let userInputWithAnsiCursor: string = "";
+  let isThinking = false;
+  let isStreaming = false;
+  let agentRunning = false;
 
   const outputBuffer = createOutputBuffer();
 
-  let terminateMe: () => void = () => { };
+  let terminateMe: () => void = () => {};
 
   const waitForTermination = () => {
     return new Promise<void>((resolve) => {
@@ -83,12 +69,15 @@ export const createRepl = (
   };
 
   const rerenderPanel = (): void => {
-    const panelLines: PanelLine[] = formatUserInput(userInputWithAnsiCursor)
-
+    const panelLines = renderPanel({
+      isStreaming,
+      isThinking,
+      startTime: 0,
+      userInputWithAnsiCursor,
+    });
     if (userInput.startsWith("/")) {
-      panelLines.push(...renderSlashMenu())
+      panelLines.push(...renderSlashMenu());
     }
-
     outputBuffer.setPanel(panelLines);
   };
 
@@ -107,20 +96,18 @@ export const createRepl = (
     },
   });
 
-  let panelState: PanelState = { type: "idle" };
-  let running = false;
   const slashCommands = new Map<string, (args: string) => Promise<string>>();
   const slashCommandDescriptions = new Map<string, string>([
-    ["model", "<name>  - Switch model"],
-    ["clear", "         - Clear session history"],
-    ["agent", "<prompt> - Spawn subagent"],
-    ["agents", "        - List agents"],
-    ["config", "        - Show current config"],
-    ["stats", "         - Show session stats"],
-    ["tools", "         - List available tools"],
-    ["test", "          - Output test lines"],
-    ["exit", "          - Exit the REPL"],
-    ["help", "          - Show this help"],
+    ["model", "          - Switch model"],
+    ["clear", "          - Clear session history"],
+    ["agent", " <prompt> - Spawn subagent"],
+    ["agents", "         - List agents"],
+    ["config", "         - Show current config"],
+    ["stats", "          - Show session stats"],
+    ["tools", "          - List available tools"],
+    ["test", "           - Output test lines"],
+    ["exit", "           - Exit the REPL"],
+    ["help", "           - Show this help"],
   ]);
 
   const formatDuration = (ms: number): string => {
@@ -163,10 +150,6 @@ export const createRepl = (
       process.stdin.setRawMode(false);
       process.stdin.on("data", onData);
     });
-  };
-
-  const setPanelState = (state: PanelState): void => {
-    panelState = state;
   };
 
   const renderSlashMenu = (): PanelLine[] => {
@@ -250,37 +233,23 @@ export const createRepl = (
     slashCommands.set("help", async () => {
       return [
         "Slash commands:",
-        "  /model <name>  - Switch model",
-        "  /clear         - Clear session history",
-        "  /agent <prompt>- Spawn subagent",
-        "  /agents        - List agents",
-        "  /config        - Show current config",
-        "  /stats         - Show session stats",
-        "  /tools         - List available tools",
-        "  /test          - Output test lines",
-        "  /exit          - Exit REPL",
-        "  /help          - Show this help",
+        "  /model <name>   - Switch model",
+        "  /clear          - Clear session history",
+        "  /agent <prompt> - Spawn subagent",
+        "  /agents         - List agents",
+        "  /config         - Show current config",
+        "  /stats          - Show session stats",
+        "  /tools          - List available tools",
+        "  /test           - Output test lines",
+        "  /exit           - Exit REPL",
+        "  /help           - Show this help",
       ].join("\n");
     });
   };
 
-  const formatUserInput = (input: string): string[] => {
-    const cols = process.stdout.columns || 80;
-    const wrapWidth = cols - 4;
-    const wrapResult = wrapText(input, 1, wrapWidth);
-
-    const lines = [
-      `${ANSI_STYLE.bg.gray900}${clearLine()}`,
-      ...wrapResult.textLines.map((line, i) => `${clearLine()}${i == 0 ? "> " : "  "}${line}`),
-      `${clearLine()}${ANSI_STYLE.reset}`,
-    ];
-
-    return lines;
-  };
-
   const handleInput = async (input: string): Promise<void> => {
     outputBuffer.scroll("\n");
-    outputBuffer.scroll(formatUserInput(input).join("\n") + "\n\n");
+    outputBuffer.scroll(formatUserInputPanel(input).join("\n") + "\n\n");
 
     if (input.startsWith("/")) {
       return handleSlashCommand(input);
@@ -309,17 +278,12 @@ export const createRepl = (
 
   const handleSendToLlm = async (input: string): Promise<void> => {
     session.addMessage("user", input);
-    setPanelState({
-      type: "streaming",
-      model: client.getModel(),
-      startTime: Date.now(),
-    });
+    isStreaming = true;
 
     let fullResponse = "";
     const startTime = Date.now();
     let tokensIn = 0;
     let tokensOut = 0;
-    let thinkingActive = false;
 
     try {
       const stats = await client.chatStream(
@@ -331,24 +295,32 @@ export const createRepl = (
         },
         undefined,
         (chunk) => {
-          if (!thinkingActive) {
-            thinkingActive = true;
+          if (!isThinking) {
+            isThinking = true;
             if (showThinking) {
-              outputBuffer.scroll("[thinking]\n");
+              outputBuffer.scroll("\n");
             }
           }
           if (showThinking && chunk) {
-            outputBuffer.scroll(chunk);
+            outputBuffer.scroll(
+              formatThinking(chunk, outputBuffer.getCursorCol()),
+            );
           }
+          rerenderPanel();
         },
         (durationMs) => {
+          const seconds = Math.max(1, Math.ceil(durationMs / 1000));
+          const formatTime = seconds + "s";
           if (showThinking) {
-            outputBuffer.scroll("[/thinking]\n");
-          } else {
-            const seconds = Math.max(1, Math.ceil(durationMs / 1000));
-            outputBuffer.scroll(`[thought for ${seconds}s]\n`);
+            // jump out of the thinking zone if we are still in there.
+            if (outputBuffer.getCursorCol() > 1) {
+              outputBuffer.scroll("\n");
+            }
           }
-          thinkingActive = false;
+          outputBuffer.scroll(
+            `${ANSI_STYLE.fg.magenta}Thought for ${formatTime}${ANSI_STYLE.reset}\n\n`,
+          );
+          isThinking = false;
         },
       );
       outputBuffer.scroll("\n");
@@ -362,6 +334,9 @@ export const createRepl = (
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       outputBuffer.scroll(fgRed(`✗ ${message}`));
+    } finally {
+      isStreaming = false;
+      isThinking = false;
     }
 
     const duration = Date.now() - startTime;
@@ -380,25 +355,25 @@ export const createRepl = (
     session.addMessage("user", `/agent ${prompt}`);
 
     const agent = agentManager.spawn(prompt, session.getMessages());
-    setPanelState({
-      type: "agent-running",
-      agents: [{ id: agent.id, status: "running", duration: 0 }],
-    });
+    // setPanelState({
+    //   type: "agent-running",
+    //   agents: [{ id: agent.id, status: "running", duration: 0 }],
+    // });
 
     const result = await agent.run();
 
     session.addMessage("assistant", result.content);
 
-    setPanelState({
-      type: "agent-complete",
-      results: [
-        {
-          id: agent.id,
-          content: result.content,
-          duration: result.stats.durationMs,
-        },
-      ],
-    });
+    // setPanelState({
+    //   type: "agent-complete",
+    //   results: [
+    //     {
+    //       id: agent.id,
+    //       content: result.content,
+    //       duration: result.stats.durationMs,
+    //     },
+    //   ],
+    // });
 
     statsDB.recordRequest(
       result.stats.durationMs,
@@ -413,14 +388,9 @@ export const createRepl = (
 
   return {
     run: async (): Promise<void> => {
-      running = true;
-
       await outputBuffer.init(inputManager);
       inputManager.start();
 
-      const model = client.getModel();
-      outputBuffer.scroll(bold("denpa") + ` — ${fgGray(`model: ${model}`)}`);
-      outputBuffer.scroll("\n");
       outputBuffer.scroll(
         fgGray("Type a message or /help for commands. Ctrl+C to cancel."),
       );
@@ -429,7 +399,6 @@ export const createRepl = (
       await waitForTermination();
 
       process.stdout.write(clearFromCursor());
-      running = false;
       inputManager.stop();
       agentManager.abortAll();
       process.exit(0);

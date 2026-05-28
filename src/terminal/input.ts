@@ -19,7 +19,10 @@ export interface InputManager {
 
 const segmenter = new Intl.Segmenter();
 
-const graphemeIndexToStringIndex = (str: string, graphemeIdx: number): number => {
+const graphemeIndexToStringIndex = (
+  str: string,
+  graphemeIdx: number,
+): number => {
   let idx = 0;
   let g = 0;
   for (const seg of segmenter.segment(str)) {
@@ -37,7 +40,7 @@ const countGraphemes = (str: string): number => {
 };
 
 const getGraphemes = (str: string): string[] =>
-  [...segmenter.segment(str)].map(s => s.segment);
+  [...segmenter.segment(str)].map((s) => s.segment);
 
 export const createInputManager = (props: InputManagerProps): InputManager => {
   const { onUserInputUpdate, onSubmit, onTerminate } = props;
@@ -69,7 +72,9 @@ export const createInputManager = (props: InputManagerProps): InputManager => {
     const beforeCursor = buffer.slice(0, strIdx);
     const graphemes = getGraphemes(buffer);
     const atCursor = graphemes[cursor] || " ";
-    const afterCursor = buffer.slice(strIdx + (atCursor === " " ? 0 : atCursor.length));
+    const afterCursor = buffer.slice(
+      strIdx + (atCursor === " " ? 0 : atCursor.length),
+    );
     const formattedInput = isCursorBlinkVisible
       ? beforeCursor +
         ANSI_STYLE.reverse +
@@ -310,6 +315,7 @@ export const createInputManager = (props: InputManagerProps): InputManager => {
       if (char === "\r" || char === "\n") {
         clearExitTimeout();
         onSubmit(buffer);
+        onUserInputUpdate("", "");
         wipeBuffer();
         return;
       }

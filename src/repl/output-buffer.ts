@@ -1,3 +1,4 @@
+import { logFile } from "../debug-logger";
 import {
   clearFromCursor,
   ESC,
@@ -8,28 +9,26 @@ import {
 } from "../terminal/ansi";
 import type { InputManager } from "../terminal/input";
 import { wrapText } from "../terminal/wrap";
-
-export type PanelToken = { type: "full-width-rule" };
-export type PanelLine = string | PanelToken;
-export const FULL_WIDTH_RULE: PanelToken = { type: "full-width-rule" };
+import type { PanelLine } from "./panel";
 
 export interface OutputBuffer {
   init: (inputManager: InputManager) => Promise<void>;
   setPanel: (lines: PanelLine[]) => void;
   scroll: (text: string) => void;
+  getCursorCol: () => number;
 }
 
 /// you better only create 1 in your entire app, buddy
 export const createOutputBuffer = (): OutputBuffer => {
   let scrollBuffer = "";
-  let panelLines: PanelLine[] = [];
   // dont forget it is one-indexed
   let cursorRow = 1;
   // dont forget it is one-indexed
   let cursorCol = 1;
   let flushScheduled = false;
   let initialized = false;
-  let lastResolvedPanel: string[] = [];
+  let resolvedPanelLines: string[] = [];
+  let lastRenderedPanelLines: string[] = [];
   let tabWidth = 8;
   let resizeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   let supressPanel: boolean = false;
@@ -141,14 +140,17 @@ export const createOutputBuffer = (): OutputBuffer => {
     if (!initialized) return;
     const scrollBufferFlush = scrollBuffer;
     scrollBuffer = "";
-    const panelFlush = sanitizePanelLines(panelLines);
-    const newPanelHeight = Math.max(1, panelFlush.length);
-    const totalRows = process.stdout.rows || 24;
-    const activeRowLimit = totalRows - newPanelHeight;
 
-    let out = clearFromCursor();
+    //logFile(scrollBufferFlush)
+
+    const totalRows = process.stdout.rows || 24;
+
+    let out = "";
 
     if (scrollBufferFlush) {
+      // adding scroll, so clear out panel
+      out += clearFromCursor();
+
       const cols = process.stdout.columns || 80;
       const wrapTextResult = wrapText(scrollBufferFlush, cursorCol, cols);
       const targetRow = Math.min(
@@ -168,6 +170,8 @@ export const createOutputBuffer = (): OutputBuffer => {
       // at this point cursor should be as accurate as can be but it might be too low
     }
 
+    const newPanelHeight = Math.max(1, resolvedPanelLines.length);
+
     //here we may need to shift the entire thing up depending on needing space for the panel
     if (cursorRow + newPanelHeight > totalRows) {
       const delta = cursorRow + newPanelHeight - totalRows;
@@ -182,19 +186,22 @@ export const createOutputBuffer = (): OutputBuffer => {
     }
 
     if (!supressPanel) {
-      out += buildPanel(panelFlush);
+      out += buildPanel(resolvedPanelLines, (scrollBufferFlush ?? "") !== "");
     }
 
     process.stdout.write(out, "utf-8");
   };
 
-  const buildPanel = (panelFlush: string[]): string => {
+  const buildPanel = (panelFlush: string[], isForceRender: boolean): string => {
     let out = saveCursor();
     panelFlush.forEach((line, idx) => {
-      out += moveTo(cursorRow + idx + 1, 1);
-      out += line;
+      if (isForceRender || (lastRenderedPanelLines[idx] ?? null) !== line) {
+        out += moveTo(cursorRow + idx + 1, 1);
+        out += line;
+      }
     });
     out += restoreCursor();
+    lastRenderedPanelLines = resolvedPanelLines;
     return out;
   };
 
@@ -211,11 +218,10 @@ export const createOutputBuffer = (): OutputBuffer => {
 
   const setPanel = (lines: PanelLine[]): void => {
     const resolved = sanitizePanelLines(lines);
-    if (arraysEqual(resolved, lastResolvedPanel)) {
+    if (arraysEqual(resolved, resolvedPanelLines)) {
       return;
     }
-    lastResolvedPanel = resolved;
-    panelLines = lines;
+    resolvedPanelLines = resolved;
     scheduleFlush();
   };
 
@@ -225,5 +231,7 @@ export const createOutputBuffer = (): OutputBuffer => {
     scheduleFlush();
   };
 
-  return { init, setPanel, scroll };
+  const getCursorCol = (): number => cursorCol;
+
+  return { init, setPanel, scroll, getCursorCol };
 };

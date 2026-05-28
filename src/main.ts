@@ -5,7 +5,10 @@ import { createStatsDB } from "./stats/db";
 import { createAPIClient } from "./api/client";
 import { createSession } from "./agent/session";
 import { createSubagentManager } from "./agent/subagent-manager";
-import { createDefaultRegistry, type ToolApprovalCallback } from "./agent/tool/registry";
+import {
+  createDefaultRegistry,
+  type ToolApprovalCallback,
+} from "./agent/tool/registry";
 import { createRepl } from "./repl/repl";
 import { runCLI } from "./cli/cli";
 import { ANSI_STYLE, fgGray, fgYellow } from "./terminal/ansi";
@@ -46,13 +49,12 @@ const main = async (): Promise<void> => {
   });
 
   // Print mode indicator
-  const denpaLabel = `${ANSI_STYLE.fg.cyan}${ANSI_STYLE.bold}denpa${ANSI_STYLE.reset}`;
+  const denpaLabel = `${ANSI_STYLE.fg.cyan}${ANSI_STYLE.bold}denpa-harness-lite${ANSI_STYLE.reset}`;
   if (config.mode === "project") {
     console.log(`${denpaLabel} [${fgGray(`project: ${config.projectRoot}`)}]`);
   } else {
     console.log(`${denpaLabel} [${fgGray("system mode")}]`);
   }
-
   // Init stats DB
   const statsPath = "~/.denpa/stats.db";
   const statsDB = createStatsDB(statsPath.replace("~", getHomeDir()));
@@ -72,7 +74,10 @@ const main = async (): Promise<void> => {
   // Init tools
   const onToolPending: ToolApprovalCallback | undefined =
     runMode === "repl"
-      ? async (name: string, def: import("./agent/tool/types").ToolDefinition): Promise<"approved" | "denied"> => {
+      ? async (
+          name: string,
+          def: import("./agent/tool/types").ToolDefinition,
+        ): Promise<"approved" | "denied"> => {
           const fn = def.function;
           console.log(fgYellow(`\n⚠ Tool '${name}' requires approval:`));
           console.log(`  ${fn.description}`);
@@ -100,9 +105,10 @@ const main = async (): Promise<void> => {
         }
       : undefined;
 
-  const customToolsDirs = config.mode === "project" && config.projectRoot
-    ? [join(config.projectRoot, ".denpa", "tools")]
-    : [join(getHomeDir(), ".denpa", "tools")];
+  const customToolsDirs =
+    config.mode === "project" && config.projectRoot
+      ? [join(config.projectRoot, ".denpa", "tools")]
+      : [join(getHomeDir(), ".denpa", "tools")];
 
   const toolRegistry = await createDefaultRegistry({
     sandboxPaths: config.sandboxPaths,
@@ -121,10 +127,18 @@ const main = async (): Promise<void> => {
   // Init terminal
 
   if (runMode === "cli") {
-    await runCLI(message, client, session, statsDB, toolRegistry.getDefinitions());
+    await runCLI(
+      message,
+      client,
+      session,
+      statsDB,
+      toolRegistry.getDefinitions(),
+    );
     const denied = toolRegistry.getDeniedTools();
     if (denied.length > 0) {
-      console.log(fgGray(`\n⚠ Denied tools: ${[...new Set(denied)].join(", ")}`));
+      console.log(
+        fgGray(`\n⚠ Denied tools: ${[...new Set(denied)].join(", ")}`),
+      );
     }
   } else {
     const repl = createRepl(
