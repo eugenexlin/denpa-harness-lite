@@ -22,8 +22,10 @@ export interface ProjectConfig {
   system_prompt_append?: string;
 }
 
+export type ToolPermissionState = "approve_once" | "approve_always" | "deny";
+
 export interface ToolPermission {
-  state: "approved" | "denied";
+  state: ToolPermissionState;
   file_mtime?: number;
 }
 

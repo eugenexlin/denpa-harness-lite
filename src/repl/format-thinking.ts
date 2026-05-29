@@ -1,8 +1,9 @@
 import { logFile } from "../debug-logger";
-import { ANSI_STYLE } from "../terminal/ansi";
+import { ANSI, wrapFgRgb } from "../terminal/ansi";
 import { wrapText } from "../terminal/wrap";
 
-const THOUGHT_PREFIX = `${ANSI_STYLE.fg.magenta}┃${ANSI_STYLE.reset} `;
+//const THOUGHT_PREFIX = `${ANSI.fg.magenta}┃${ANSI.fg.default} `;
+const THOUGHT_PREFIX = wrapFgRgb(ANSI.color_ref.thinking, "┃");
 
 export const formatThinking = (text: string, colPos: number): string => {
   // logFile("think", text);
@@ -22,7 +23,7 @@ export const formatThinking = (text: string, colPos: number): string => {
     if (index > 0) {
       out += THOUGHT_PREFIX;
     }
-    out += `${ANSI_STYLE.dim}${line}${ANSI_STYLE.disable.dim}`;
+    out += `${ANSI.dim}${line}${ANSI.disable.dim}`;
     if (index < wrapTextResult.textLines.length - 1) {
       out += "\n";
     }

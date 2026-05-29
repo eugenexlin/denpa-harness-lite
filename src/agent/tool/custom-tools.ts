@@ -1,6 +1,6 @@
 import { readdirSync, statSync, existsSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
-import type { ToolDefinition, ToolHandler, ToolResult } from "./types";
+import { join } from "node:path";
+import type { InternalToolDefinition, InternalToolParam, ToolHandler, ToolResult } from "./internal";
 import { createToolContext } from "./context";
 import type { ToolContext, ToolContextOptions } from "./context";
 
@@ -9,21 +9,30 @@ export interface ToolManifest {
   description: string;
   parameters: {
     type: "object";
-    properties: Record<string, ToolParam>;
+    properties: Record<string, ToolManifestParam>;
     required?: string[];
   };
 }
 
-export interface ToolParam {
+export interface ToolManifestParam {
   type: string;
   description?: string;
   enum?: string[];
-  items?: { type: string; enum?: string[] };
+  items?: ToolManifestParam;
+  default?: unknown;
+  minimum?: number;
+  maximum?: number;
+  minLength?: number;
+  maxLength?: number;
+  pattern?: string;
+  format?: string;
+  properties?: Record<string, ToolManifestParam>;
+  [key: string]: unknown;
 }
 
 export interface LoadedTool {
   name: string;
-  definition: ToolDefinition;
+  definition: InternalToolDefinition;
   handler: ToolHandler;
   fileMtimes: Record<string, number>;
   context?: ToolContext;
@@ -69,13 +78,33 @@ const loadManifest = (dir: string): ToolManifest | null => {
   }
 };
 
-const toToolDefinition = (manifest: ToolManifest): ToolDefinition => ({
-  type: "function",
-  function: {
-    name: manifest.name,
-    description: manifest.description,
-    parameters: manifest.parameters,
-  },
+const toManifestParam = (p: ToolManifestParam): InternalToolParam => {
+  const result: InternalToolParam = { type: p.type };
+  if (p.description) result.description = p.description;
+  if (p.enum) result.enum = p.enum;
+  if (p.items) result.items = toManifestParam(p.items);
+  if (p.default !== undefined) result.default = p.default;
+  if (p.minimum !== undefined) result.minimum = p.minimum;
+  if (p.maximum !== undefined) result.maximum = p.maximum;
+  if (p.minLength !== undefined) result.minLength = p.minLength;
+  if (p.maxLength !== undefined) result.maxLength = p.maxLength;
+  if (p.pattern) result.pattern = p.pattern;
+  if (p.format) result.format = p.format;
+  if (p.properties) {
+    result.properties = Object.fromEntries(
+      Object.entries(p.properties).map(([k, v]) => [k, toManifestParam(v)])
+    );
+  }
+  return result;
+};
+
+const toToolDefinition = (manifest: ToolManifest): InternalToolDefinition => ({
+  name: manifest.name,
+  description: manifest.description,
+  parameters: Object.fromEntries(
+    Object.entries(manifest.parameters.properties).map(([k, v]) => [k, toManifestParam(v)])
+  ),
+  required: manifest.parameters.required,
 });
 
 const loadHandler = async (

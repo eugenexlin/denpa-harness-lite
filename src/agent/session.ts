@@ -2,7 +2,11 @@ import type { Message } from "../api/types";
 
 export interface Session {
   getMessages: () => Message[];
-  addMessage: (role: "user" | "assistant", content: string) => void;
+  addMessage: (
+    role: "user" | "assistant" | "tool",
+    content: string,
+    options?: { tool_call_id?: string },
+  ) => void;
   setSystemPrompt: (prompt: string) => void;
   clear: () => void;
   getHistory: () => Message[];
@@ -16,8 +20,16 @@ export const createSession = (systemPrompt: string = ""): Session => {
   return {
     getMessages: (): Message[] => messages,
 
-    addMessage: (role: "user" | "assistant", content: string): void => {
-      messages.push({ role, content });
+    addMessage: (
+      role: "user" | "assistant" | "tool",
+      content: string,
+      options?: { tool_call_id?: string },
+    ): void => {
+      const msg: Message = { role, content };
+      if (role === "tool" && options?.tool_call_id) {
+        msg.tool_call_id = options.tool_call_id;
+      }
+      messages.push(msg);
     },
 
     setSystemPrompt: (prompt: string): void => {

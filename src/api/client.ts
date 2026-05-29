@@ -1,41 +1,60 @@
-import type { Message, ToolDefinition, APIStats } from "./types";
+import type { Message, InternalToolCall } from "./types";
+import type { InternalToolDefinition } from "../agent/tool/internal";
+import { openAIFormatter } from "../agent/tool/formatter";
+import type { APIStats } from "./types";
 
 export interface APIClient {
   getModel: () => string;
   updateModel: (model: string) => void;
   chatStream: (
     messages: Message[],
-    tools?: ToolDefinition[],
+    tools?: InternalToolDefinition[],
     onToken?: (token: string) => void,
     signal?: AbortSignal,
     onThinking?: (chunk: string) => void,
     onThinkingEnd?: (durationMs: number) => void,
-  ) => Promise<APIStats>;
+  ) => Promise<APIStats & { toolCalls?: InternalToolCall[] }>;
   chatComplete: (
     messages: Message[],
-    tools?: ToolDefinition[],
+    tools?: InternalToolDefinition[],
     signal?: AbortSignal,
-  ) => Promise<{ content: string; stats: APIStats }>;
+  ) => Promise<{ content: string; toolCalls?: InternalToolCall[]; stats: APIStats }>;
 }
 
-export const createAPIClient = (baseUrl: string, apiKey: string, model: string): APIClient => {
+export interface APIClientOptions {
+  formatter?: typeof openAIFormatter;
+}
+
+export const createAPIClient = (
+  baseUrl: string,
+  apiKey: string,
+  model: string,
+  options: APIClientOptions = {},
+): APIClient => {
   const cleanBaseUrl = baseUrl.replace(/\/+$/, "");
   let currentModel = model;
+  const formatter = options.formatter ?? openAIFormatter;
 
   const buildPayload = (
     messages: Message[],
-    tools?: ToolDefinition[],
+    tools?: InternalToolDefinition[],
     stream = false,
-  ): import("./types").ChatRequest => ({
-    model: currentModel,
-    messages,
-    tools: tools?.length ? tools : undefined,
-    stream,
-  });
+  ): Record<string, unknown> => {
+    const payload: Record<string, unknown> = {
+      model: currentModel,
+      messages: formatter.formatMessages(messages),
+      stream,
+    };
+    if (tools?.length) {
+      payload.tools = formatter.formatTools(tools);
+    }
+    return payload;
+  };
 
   type StreamEvent =
     | { type: "thinking"; text: string }
-    | { type: "content"; text: string };
+    | { type: "content"; text: string }
+    | { type: "tool_call"; toolCall: InternalToolCall };
 
   const parseStream = async function* (
     response: Response,
@@ -45,6 +64,8 @@ export const createAPIClient = (baseUrl: string, apiKey: string, model: string):
 
     const decoder = new TextDecoder();
     let buffer = "";
+
+    const pendingToolCalls = new Map<number, { id?: string; name?: string; argsBuffer: string }>();
 
     try {
       while (true) {
@@ -60,13 +81,31 @@ export const createAPIClient = (baseUrl: string, apiKey: string, model: string):
           if (!trimmed.startsWith("data: ")) continue;
 
           const data = trimmed.slice(6);
-          if (data === "[DONE]") return;
+          if (data === "[DONE]") {
+            for (const tc of pendingToolCalls.values()) {
+              if (tc.id && tc.name) {
+                yield { type: "tool_call", toolCall: { id: tc.id, name: tc.name, arguments: (() => { try { return JSON.parse(tc.argsBuffer) as Record<string, unknown>; } catch { return {}; } })() } };
+              }
+            }
+            pendingToolCalls.clear();
+            return;
+          }
 
           try {
             const chunk = JSON.parse(data) as import("./types").StreamChunk;
             const delta = chunk.choices?.[0]?.delta;
             if (delta?.reasoning_content) yield { type: "thinking", text: delta.reasoning_content };
             if (delta?.content) yield { type: "content", text: delta.content };
+            if (delta?.tool_calls) {
+              for (const tc of delta.tool_calls) {
+                const idx = tc.index;
+                const existing = pendingToolCalls.get(idx) ?? { id: undefined, name: undefined, argsBuffer: "" };
+                if (tc.id) existing.id = tc.id;
+                if (tc.function?.name) existing.name = tc.function.name;
+                if (tc.function?.arguments) existing.argsBuffer += tc.function.arguments;
+                pendingToolCalls.set(idx, existing);
+              }
+            }
           } catch {
             // Skip malformed JSON
           }
@@ -89,16 +128,17 @@ export const createAPIClient = (baseUrl: string, apiKey: string, model: string):
 
     chatStream: async (
       messages: Message[],
-      tools?: ToolDefinition[],
+      tools?: InternalToolDefinition[],
       onToken?: (token: string) => void,
       signal?: AbortSignal,
       onThinking?: (chunk: string) => void,
       onThinkingEnd?: (durationMs: number) => void,
-    ): Promise<APIStats> => {
+    ): Promise<APIStats & { toolCalls?: InternalToolCall[] }> => {
       const startTime = Date.now();
       let fullContent = "";
       let isThinking = false;
       let thinkingStart = 0;
+      const collectedToolCalls: InternalToolCall[] = [];
 
       const processEvent = (event: StreamEvent) => {
         if (event.type === "thinking") {
@@ -108,6 +148,8 @@ export const createAPIClient = (baseUrl: string, apiKey: string, model: string):
             onThinking?.("");
           }
           onThinking?.(event.text);
+        } else if (event.type === "tool_call") {
+          collectedToolCalls.push(event.toolCall);
         } else {
           // content
           if (isThinking) {
@@ -160,14 +202,15 @@ export const createAPIClient = (baseUrl: string, apiKey: string, model: string):
         tokensIn,
         tokensOut,
         durationMs,
+        toolCalls: collectedToolCalls.length ? collectedToolCalls : undefined,
       };
     },
 
     chatComplete: async (
       messages: Message[],
-      tools?: ToolDefinition[],
+      tools?: InternalToolDefinition[],
       signal?: AbortSignal,
-    ): Promise<{ content: string; stats: APIStats }> => {
+    ): Promise<{ content: string; toolCalls?: InternalToolCall[]; stats: APIStats }> => {
       const startTime = Date.now();
 
       const payload = buildPayload(messages, tools, false);
@@ -192,12 +235,15 @@ export const createAPIClient = (baseUrl: string, apiKey: string, model: string):
 
       const json = (await response.json()) as import("./types").ChatCompletionResponse;
       const content = json.choices?.[0]?.message?.content ?? "";
+      const rawToolCalls = json.choices?.[0]?.message?.tool_calls;
+      const toolCalls = rawToolCalls ? formatter.parseToolCalls(rawToolCalls) : undefined;
       const tokensIn = json.usage?.prompt_tokens ?? 0;
       const tokensOut = json.usage?.completion_tokens ?? 0;
       const durationMs = Date.now() - startTime;
 
       return {
         content,
+        toolCalls: toolCalls?.length ? toolCalls : undefined,
         stats: {
           model: currentModel,
           tokensIn,

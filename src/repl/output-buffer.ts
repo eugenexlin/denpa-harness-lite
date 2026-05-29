@@ -5,9 +5,9 @@ import {
   moveTo,
   restoreCursor,
   saveCursor,
-  separator,
 } from "../terminal/ansi";
 import type { InputManager } from "../terminal/input";
+import { horizontal } from "../terminal/special-chars";
 import { wrapText } from "../terminal/wrap";
 import type { PanelLine } from "./panel";
 
@@ -130,7 +130,7 @@ export const createOutputBuffer = (): OutputBuffer => {
         return wraptextResult.textLines[0] ?? "";
       }
       if (line.type === "full-width-rule") {
-        return separator(cols);
+        return horizontal(cols);
       }
       return "";
     });
@@ -194,6 +194,13 @@ export const createOutputBuffer = (): OutputBuffer => {
 
   const buildPanel = (panelFlush: string[], isForceRender: boolean): string => {
     let out = saveCursor();
+
+    //special quick scenario, wipe all if the panel size is shrunk
+    if (lastRenderedPanelLines.length > resolvedPanelLines.length) {
+      out += clearFromCursor();
+      lastRenderedPanelLines = [];
+    }
+
     panelFlush.forEach((line, idx) => {
       if (isForceRender || (lastRenderedPanelLines[idx] ?? null) !== line) {
         out += moveTo(cursorRow + idx + 1, 1);

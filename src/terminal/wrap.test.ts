@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import { wrapText } from "./wrap";
-import { ANSI_REGEX, ANSI_STYLE } from "./ansi";
+import { ANSI_REGEX, ANSI } from "./ansi";
 
 describe("wrapText", () => {
   describe("basic wrapping", () => {
@@ -94,8 +94,8 @@ describe("wrapText", () => {
 
   describe("ANSI escape sequence handling", () => {
     it("skips ANSI codes at start of line when measuring width", () => {
-      const result = wrapText(`${ANSI_STYLE.fg.red}hello`, 1, 80);
-      expect(result.textLines).toEqual([`${ANSI_STYLE.fg.red}hello`]);
+      const result = wrapText(`${ANSI.fg.red}hello`, 1, 80);
+      expect(result.textLines).toEqual([`${ANSI.fg.red}hello`]);
     });
 
     it("skips ANSI codes in the middle of text", () => {

@@ -8,7 +8,7 @@ export const buildSystemPrompt = (options: {
 }): string => {
   const lines: string[] = [];
 
-  lines.push("You are a coding assistant. Be concise and direct.");
+  lines.push("You are an ai coding assistant. Be concise and direct.");
   lines.push("");
   lines.push(`Working directory: ${options.cwd}`);
   lines.push(`OS: ${options.platform}`);

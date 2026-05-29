@@ -7,16 +7,20 @@ import type {
   ToolApprovalCallback,
 } from "../agent/tool/registry";
 import type { StatsDB } from "../stats/db";
-import {
-  fgGray,
-  fgRed,
-  fgYellow,
-  clearFromCursor,
-  ANSI_STYLE,
-} from "../terminal/ansi";
+import type { ToolPermissionState } from "../config/types";
+import type { InternalToolDefinition } from "../agent/tool/internal";
+import { executeToolLoop } from "../agent/tool-loop";
+import { createCallbacks, formatDuration } from "../agent/tool-loop-callbacks";
+import { ANSI, clearFromCursor, wrapFgRgb } from "../terminal/ansi";
 import { createOutputBuffer } from "./output-buffer";
 import { formatThinking } from "./format-thinking";
-import { formatUserInputPanel, renderPanel, type PanelLine } from "./panel";
+import {
+  formatUserInputPanel,
+  renderPanel,
+  type PanelLine,
+  type PanelMode,
+} from "./panel";
+import { CHARS } from "../terminal/special-chars";
 
 export interface Repl {
   run: () => Promise<void>;
@@ -25,7 +29,6 @@ export interface Repl {
 
 export interface ReplOptions {
   showThinking?: boolean;
-  onToolPending?: ToolApprovalCallback;
 }
 
 export const createRepl = (
@@ -37,12 +40,16 @@ export const createRepl = (
   options: ReplOptions = {},
 ): Repl => {
   const showThinking = options.showThinking ?? false;
-  const onToolPending = options.onToolPending;
   let userInput: string = "";
   let userInputWithAnsiCursor: string = "";
   let isThinking = false;
   let isStreaming = false;
+  let isReadonlyMode = true;
   let agentRunning = false;
+  let panelMode: PanelMode = "input";
+  let pendingToolName: string | null = null;
+  let pendingToolDef: InternalToolDefinition | null = null;
+  let pendingToolArgs: Record<string, unknown> | null = null;
 
   const outputBuffer = createOutputBuffer();
 
@@ -50,13 +57,11 @@ export const createRepl = (
 
   const waitForTermination = () => {
     return new Promise<void>((resolve) => {
-      // SIGINT is triggered by Ctrl+C
       process.on("SIGINT", () => {
         console.log("\nReceived SIGINT (Ctrl+C). Shutting down...");
         resolve();
       });
 
-      // SIGTERM is often sent by process managers or Docker
       process.on("SIGTERM", () => {
         console.log("Received SIGTERM. Shutting down...");
         resolve();
@@ -70,12 +75,18 @@ export const createRepl = (
 
   const rerenderPanel = (): void => {
     const panelLines = renderPanel({
+      mode: panelMode,
       isStreaming,
+      llmModel: client.getModel(),
+      isReadonlyMode,
       isThinking,
       startTime: 0,
       userInputWithAnsiCursor,
+      toolName: pendingToolName ?? undefined,
+      toolDefinition: pendingToolDef ?? undefined,
+      toolArgs: pendingToolArgs ?? undefined,
     });
-    if (userInput.startsWith("/")) {
+    if (panelMode === "input" && userInput.startsWith("/")) {
       panelLines.push(...renderSlashMenu());
     }
     outputBuffer.setPanel(panelLines);
@@ -110,44 +121,42 @@ export const createRepl = (
     ["help", "           - Show this help"],
   ]);
 
-  const formatDuration = (ms: number): string => {
-    const seconds = Math.floor(ms / 1000);
-    const minutes = Math.floor(seconds / 60);
-    if (minutes > 0) {
-      return `${minutes}:${String(seconds % 60).padStart(2, "0")}`;
-    }
-    return `${seconds}s`;
-  };
-
   const promptToolApproval: ToolApprovalCallback = async (
     name: string,
     definition,
-  ): Promise<"approved" | "denied"> => {
-    const fn = definition.function;
-    outputBuffer.scroll(fgYellow(`\n⚠ Tool '${name}' requires approval:\n`));
-    outputBuffer.scroll(`  ${fn.description}\n`);
-    const params = Object.entries(fn.parameters.properties)
-      .map(([k, v]) => `${k} (${v.type})`)
-      .join(", ");
-    if (params) {
-      outputBuffer.scroll(`  Params: ${params}\n`);
-    }
-    outputBuffer.scroll("Approve? [y/N]: ");
+    args,
+  ): Promise<ToolPermissionState> => {
+    inputManager.supressInput();
+    panelMode = "tool-approval";
+    pendingToolName = name;
+    pendingToolDef = definition;
+    pendingToolArgs = args;
+    rerenderPanel();
 
     return new Promise((resolve) => {
       const onData = (data: Buffer) => {
-        const char = data.toString().trim().toLowerCase();
+        const char = data.toString().trim();
         process.stdin.removeListener("data", onData);
-        process.stdin.setRawMode(true);
-        if (char === "y" || char === "yes") {
-          outputBuffer.scroll("approved\n");
-          resolve("approved");
-        } else {
-          outputBuffer.scroll("denied\n");
-          resolve("denied");
+
+        let decision: ToolPermissionState | null = null;
+        if (char === "y") {
+          decision = "approve_once";
+        } else if (char === "Y") {
+          decision = "approve_always";
+        } else if (char === "n") {
+          decision = "deny";
+        }
+
+        if (decision) {
+          panelMode = "input";
+          pendingToolName = null;
+          pendingToolDef = null;
+          pendingToolArgs = null;
+          inputManager.unsupressInput();
+          rerenderPanel();
+          resolve(decision);
         }
       };
-      process.stdin.setRawMode(false);
       process.stdin.on("data", onData);
     });
   };
@@ -280,21 +289,17 @@ export const createRepl = (
     session.addMessage("user", input);
     isStreaming = true;
 
-    let fullResponse = "";
     const startTime = Date.now();
     let tokensIn = 0;
     let tokensOut = 0;
 
     try {
-      const stats = await client.chatStream(
-        session.getMessages(),
-        undefined,
-        (token) => {
-          fullResponse += token;
+      const callbacks = createCallbacks({
+        showThinking,
+        onToken: (token) => {
           outputBuffer.scroll(token);
         },
-        undefined,
-        (chunk) => {
+        onThinking: (chunk) => {
           if (!isThinking) {
             isThinking = true;
             if (showThinking) {
@@ -308,32 +313,41 @@ export const createRepl = (
           }
           rerenderPanel();
         },
-        (durationMs) => {
-          const seconds = Math.max(1, Math.ceil(durationMs / 1000));
-          const formatTime = seconds + "s";
+        onThinkingEnd: (durationMs) => {
           if (showThinking) {
-            // jump out of the thinking zone if we are still in there.
             if (outputBuffer.getCursorCol() > 1) {
               outputBuffer.scroll("\n");
             }
           }
-          outputBuffer.scroll(
-            `${ANSI_STYLE.fg.magenta}Thought for ${formatTime}${ANSI_STYLE.reset}\n\n`,
-          );
           isThinking = false;
         },
+      });
+
+      const fullResponse = await executeToolLoop(
+        client,
+        session,
+        toolRegistry,
+        toolRegistry.getDefinitions(),
+        callbacks,
       );
+
       outputBuffer.scroll("\n");
 
       const duration = Date.now() - startTime;
-      statsDB.recordRequest(duration, stats.tokensIn, stats.tokensOut);
-      tokensIn = stats.tokensIn;
-      tokensOut = stats.tokensOut;
+      tokensIn = session
+        .getMessages()
+        .reduce((sum, m) => sum + m.content.length, 0);
+      tokensOut = fullResponse.length;
+      statsDB.recordRequest(
+        duration,
+        Math.ceil(tokensIn / 4),
+        Math.ceil(tokensOut / 4),
+      );
 
       session.addMessage("assistant", fullResponse);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      outputBuffer.scroll(fgRed(`✗ ${message}`));
+      outputBuffer.scroll(wrapFgRgb(ANSI.color.red500, `✗ ${message}`));
     } finally {
       isStreaming = false;
       isThinking = false;
@@ -342,38 +356,23 @@ export const createRepl = (
     const duration = Date.now() - startTime;
     let infoBuffer = `\n${formatDuration(duration)}`;
     if (tokensIn > 0) {
-      infoBuffer += ` | in:${tokensIn}`;
+      infoBuffer += ` ${CHARS.separator} in:${tokensIn}`;
     }
     if (tokensOut > 0) {
-      infoBuffer += ` | out:${tokensOut}`;
+      infoBuffer += ` ${CHARS.separator} out:${tokensOut}`;
     }
     infoBuffer += "\n";
-    outputBuffer.scroll(fgGray(infoBuffer));
+    outputBuffer.scroll(wrapFgRgb(ANSI.color.gray500, infoBuffer));
   };
 
   const handleAgent = async (prompt: string): Promise<string> => {
     session.addMessage("user", `/agent ${prompt}`);
 
     const agent = agentManager.spawn(prompt, session.getMessages());
-    // setPanelState({
-    //   type: "agent-running",
-    //   agents: [{ id: agent.id, status: "running", duration: 0 }],
-    // });
 
     const result = await agent.run();
 
     session.addMessage("assistant", result.content);
-
-    // setPanelState({
-    //   type: "agent-complete",
-    //   results: [
-    //     {
-    //       id: agent.id,
-    //       content: result.content,
-    //       duration: result.stats.durationMs,
-    //     },
-    //   ],
-    // });
 
     statsDB.recordRequest(
       result.stats.durationMs,
@@ -388,11 +387,15 @@ export const createRepl = (
 
   return {
     run: async (): Promise<void> => {
+      toolRegistry.updateApprovalCallback(promptToolApproval);
       await outputBuffer.init(inputManager);
       inputManager.start();
 
       outputBuffer.scroll(
-        fgGray("Type a message or /help for commands. Ctrl+C to cancel."),
+        wrapFgRgb(
+          ANSI.color.gray500,
+          "Type a message or /help for commands. Ctrl+C to cancel.",
+        ),
       );
       outputBuffer.scroll("\n");
 

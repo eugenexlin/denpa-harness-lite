@@ -1,6 +1,9 @@
-import type { Message, ToolDefinition, APIStats } from "../api/types";
+import type { Message, APIStats } from "../api/types";
+import type { InternalToolDefinition } from "../agent/tool/internal";
 import type { APIClient } from "../api/client";
+import type { ToolRegistry } from "../agent/tool/registry";
 import { createSession } from "./session";
+import { executeToolLoop } from "./tool-loop";
 
 export type SubagentStatus = "pending" | "running" | "complete" | "cancelled";
 
@@ -23,7 +26,8 @@ export const createSubagent = (
   parentContext: Message[],
   client: APIClient,
   systemPrompt: string,
-  tools?: ToolDefinition[],
+  toolRegistry: ToolRegistry,
+  tools?: InternalToolDefinition[],
 ): Subagent => {
   const session = createSession(systemPrompt);
   const abortController = new AbortController();
@@ -50,17 +54,30 @@ export const createSubagent = (
 
     run: async (): Promise<SubagentResult> => {
       status = "running";
+      const startTime = Date.now();
 
       try {
-        const { content, stats } = await (client as any).chatComplete(
-          session.getMessages(),
-          tools,
+        const content = await executeToolLoop(
+          client,
+          session,
+          toolRegistry,
+          tools ?? [],
+          {},
           abortController.signal,
         );
 
+        const durationMs = Date.now() - startTime;
+        const tokensIn = session.getMessages().reduce((sum, m) => sum + m.content.length, 0);
+        const tokensOut = content.length;
+
         result = {
           content,
-          stats,
+          stats: {
+            model: client.getModel(),
+            tokensIn: Math.ceil(tokensIn / 4),
+            tokensOut: Math.ceil(tokensOut / 4),
+            durationMs,
+          },
           status: "complete",
         };
         status = "complete";
@@ -70,7 +87,7 @@ export const createSubagent = (
           result = {
             content: "[agent cancelled]",
             stats: {
-              model: (client as any).getModel(),
+              model: client.getModel(),
               tokensIn: 0,
               tokensOut: 0,
               durationMs: 0,
@@ -82,7 +99,7 @@ export const createSubagent = (
           result = {
             content: `[error: ${err instanceof Error ? err.message : String(err)}]`,
             stats: {
-              model: (client as any).getModel(),
+              model: client.getModel(),
               tokensIn: 0,
               tokensOut: 0,
               durationMs: 0,

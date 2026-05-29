@@ -1,9 +1,7 @@
-import type { ToolDefinition } from "../agent/tool/types";
+import type { InternalToolDefinition, InternalToolCall, InternalMessage } from "../agent/tool/internal";
 
-export interface Message {
-  role: "system" | "user" | "assistant";
-  content: string;
-}
+export type Message = InternalMessage;
+export type { InternalToolCall };
 
 export interface ToolCall {
   id: string;
@@ -22,10 +20,10 @@ export interface ChatCompletionResponse {
   choices: {
     index: number;
     message: {
-       role: string;
-       content: string | null;
-       reasoning_content?: string;
-       tool_calls?: ToolCall[];
+      role: string;
+      content: string | null;
+      reasoning_content?: string;
+      tool_calls?: ToolCall[];
     };
     finish_reason: string | null;
   }[];
@@ -43,11 +41,11 @@ export interface StreamChunk {
   model: string;
   choices: {
     index: number;
-     delta: {
-        role?: string;
-        content?: string;
-        reasoning_content?: string;
-        tool_calls?: {
+    delta: {
+      role?: string;
+      content?: string;
+      reasoning_content?: string;
+      tool_calls?: {
         index: number;
         id?: string;
         type?: string;
@@ -61,7 +59,7 @@ export interface StreamChunk {
   }[];
 }
 
-export type { ToolDefinition };
+export type { ToolDefinition } from "../agent/tool/types";
 
 export interface APIStats {
   model: string;
@@ -73,6 +71,7 @@ export interface APIStats {
 export interface ChatRequest {
   model: string;
   messages: Message[];
-  tools?: ToolDefinition[];
+  tools?: InternalToolDefinition[];
   stream?: boolean;
+  parallel_tool_calls?: boolean;
 }

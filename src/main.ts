@@ -5,14 +5,12 @@ import { createStatsDB } from "./stats/db";
 import { createAPIClient } from "./api/client";
 import { createSession } from "./agent/session";
 import { createSubagentManager } from "./agent/subagent-manager";
-import {
-  createDefaultRegistry,
-  type ToolApprovalCallback,
-} from "./agent/tool/registry";
+import { createDefaultRegistry } from "./agent/tool/registry";
 import { buildSystemPrompt } from "./agent/prompt";
 import { createRepl } from "./repl/repl";
 import { runCLI } from "./cli/cli";
-import { ANSI_STYLE, fgGray, fgYellow } from "./terminal/ansi";
+import { openAIFormatter } from "./agent/tool/formatter";
+import { ANSI, wrapFgRgb } from "./terminal/ansi";
 
 const main = async (): Promise<void> => {
   process.stdin.setRawMode(true);
@@ -24,6 +22,7 @@ const main = async (): Promise<void> => {
   let cliModel: string | undefined;
   let cliApiKey: string | undefined;
   let cliBaseUrl: string | undefined;
+  let cliVerbose = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i] ?? "";
@@ -33,6 +32,8 @@ const main = async (): Promise<void> => {
       cliApiKey = args[++i];
     } else if (arg === "--base-url" || arg === "-u") {
       cliBaseUrl = args[++i];
+    } else if (arg === "--verbose" || arg === "-v") {
+      cliVerbose = true;
     } else if (!arg.startsWith("-")) {
       if (runMode === "repl") {
         runMode = "cli";
@@ -50,11 +51,15 @@ const main = async (): Promise<void> => {
   });
 
   // Print mode indicator
-  const denpaLabel = `${ANSI_STYLE.fg.cyan}${ANSI_STYLE.bold}denpa-harness-lite${ANSI_STYLE.reset}`;
+  const denpaLabel = `${ANSI.fg.cyan}${ANSI.bold}denpa-harness-lite${ANSI.reset}`;
   if (config.mode === "project") {
-    console.log(`${denpaLabel} [${fgGray(`project: ${config.projectRoot}`)}]`);
+    console.log(
+      `${denpaLabel} [${wrapFgRgb(ANSI.color.gray500, `project: ${config.projectRoot}`)}]`,
+    );
   } else {
-    console.log(`${denpaLabel} [${fgGray("system mode")}]`);
+    console.log(
+      `${denpaLabel} [${wrapFgRgb(ANSI.color.gray500, "system mode")}]`,
+    );
   }
   // Init stats DB
   const statsPath = "~/.denpa/stats.db";
@@ -65,45 +70,13 @@ const main = async (): Promise<void> => {
     config.model.base_url,
     config.model.api_key,
     config.defaultModelName,
+    { formatter: openAIFormatter },
   );
 
   // Init session (placeholder prompt, updated after tools are loaded)
   const session = createSession();
 
   // Init tools
-  const onToolPending: ToolApprovalCallback | undefined =
-    runMode === "repl"
-      ? async (
-          name: string,
-          def: import("./agent/tool/types").ToolDefinition,
-        ): Promise<"approved" | "denied"> => {
-          const fn = def.function;
-          console.log(fgYellow(`\n⚠ Tool '${name}' requires approval:`));
-          console.log(`  ${fn.description}`);
-          const params = Object.entries(fn.parameters.properties)
-            .map(([k, v]) => `${k} (${v.type})`)
-            .join(", ");
-          if (params) console.log(`  Params: ${params}`);
-          process.stdout.write("Approve? [y/N]: ");
-          return new Promise((resolve) => {
-            const onData = (data: Buffer) => {
-              const char = data.toString().trim().toLowerCase();
-              process.stdin.removeListener("data", onData);
-              process.stdin.setRawMode(true);
-              if (char === "y" || char === "yes") {
-                console.log("approved");
-                resolve("approved");
-              } else {
-                console.log("denied");
-                resolve("denied");
-              }
-            };
-            process.stdin.setRawMode(false);
-            process.stdin.on("data", onData);
-          });
-        }
-      : undefined;
-
   const customToolsDirs =
     config.mode === "project" && config.projectRoot
       ? [join(config.projectRoot, ".denpa", "tools")]
@@ -112,7 +85,14 @@ const main = async (): Promise<void> => {
   const toolRegistry = await createDefaultRegistry({
     sandboxPaths: config.sandboxPaths,
     permissions: config.permissions,
-    onToolPending,
+    onPermissionChange: (name, state) => {
+      configManager.savePermissions({
+        tools: {
+          ...config.permissions.tools,
+          [name]: { state },
+        },
+      });
+    },
     customToolsDirs,
   });
 
@@ -132,6 +112,7 @@ const main = async (): Promise<void> => {
   const agentManager = createSubagentManager(
     client,
     systemPrompt,
+    toolRegistry,
     toolRegistry.getDefinitions(),
   );
 
@@ -144,11 +125,16 @@ const main = async (): Promise<void> => {
       session,
       statsDB,
       toolRegistry.getDefinitions(),
+      toolRegistry,
+      { showThinking: cliVerbose },
     );
     const denied = toolRegistry.getDeniedTools();
     if (denied.length > 0) {
       console.log(
-        fgGray(`\n⚠ Denied tools: ${[...new Set(denied)].join(", ")}`),
+        wrapFgRgb(
+          ANSI.color.gray500,
+          `\n⚠ Denied tools: ${[...new Set(denied)].join(", ")}`,
+        ),
       );
     }
   } else {

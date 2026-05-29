@@ -1,4 +1,4 @@
-import { ANSI_STYLE } from "./ansi";
+import { ANSI } from "./ansi";
 
 export interface InputManagerProps {
   onUserInputUpdate: (input: string, render: string) => void;
@@ -77,9 +77,9 @@ export const createInputManager = (props: InputManagerProps): InputManager => {
     );
     const formattedInput = isCursorBlinkVisible
       ? beforeCursor +
-        ANSI_STYLE.reverse +
+        ANSI.reverse +
         atCursor +
-        ANSI_STYLE.disable.reverse +
+        ANSI.disable.reverse +
         afterCursor
       : buffer;
     onUserInputUpdate(buffer, formattedInput);

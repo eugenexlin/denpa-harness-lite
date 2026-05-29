@@ -1,5 +1,7 @@
-import type { Message, ToolDefinition } from "../api/types";
+import type { Message } from "../api/types";
+import type { InternalToolDefinition } from "../agent/tool/internal";
 import type { APIClient } from "../api/client";
+import type { ToolRegistry } from "../agent/tool/registry";
 import type { Subagent } from "./subagent";
 import { createSubagent } from "./subagent";
 
@@ -17,7 +19,8 @@ export interface SubagentManager {
 export const createSubagentManager = (
   client: APIClient,
   systemPrompt: string,
-  tools?: ToolDefinition[],
+  toolRegistry: ToolRegistry,
+  tools?: InternalToolDefinition[],
 ): SubagentManager => {
   const agents = new Map<number, Subagent>();
   let nextId = 1;
@@ -31,6 +34,7 @@ export const createSubagentManager = (
         parentContext,
         client,
         systemPrompt,
+        toolRegistry,
         tools,
       );
       agents.set(id, agent);
