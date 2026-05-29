@@ -3,42 +3,68 @@ import type { Session } from "../agent/session";
 import type { StatsDB } from "../stats/db";
 import type { ToolRegistry } from "../agent/tool/registry";
 import type { InternalToolDefinition } from "../agent/tool/internal";
-import { logFile } from "../debug-logger";
+import { logFile } from "../utils/debug-logger";
 import { executeToolLoop } from "../agent/tool-loop";
-import { createCallbacks, recordStats, formatDuration } from "../agent/tool-loop-callbacks";
+import type { OutputVisibilityConfig } from "../config/types";
+import { ANSI, bold, wrapFgRgb } from "../terminal/ansi";
+import { CHARS } from "../terminal/special-chars";
+import { formatDuration } from "../utils/string-formatter";
 
 export interface CLIOptions {
   showThinking?: boolean;
+  showToolResults?: boolean;
 }
+export const recordStats = (
+  startTime: number,
+  client: APIClient,
+  session: Session,
+  fullResponse: string,
+  statsDB: StatsDB,
+): void => {
+  const duration = Date.now() - startTime;
+  const tokensIn = session
+    .getMessages()
+    .reduce((sum, m) => sum + m.content.length, 0);
+  const tokensOut = fullResponse.length;
+  statsDB.recordRequest(
+    duration,
+    Math.ceil(tokensIn / 4),
+    Math.ceil(tokensOut / 4),
+  );
+
+  console.log("");
+  console.log(
+    wrapFgRgb(
+      ANSI.color.gray500,
+      `\n${bold(client.getModel())} ${CHARS.separator} ${formatDuration(duration)} ${CHARS.separator} in:${Math.ceil(tokensIn / 4)} ${CHARS.separator} out:${Math.ceil(tokensOut / 4)}\n`,
+    ),
+  );
+};
 
 export const runCLI = async (
   message: string,
   client: APIClient,
   session: Session,
   statsDB: StatsDB,
+  config: OutputVisibilityConfig,
   tools?: InternalToolDefinition[],
   toolRegistry?: ToolRegistry,
-  options: CLIOptions = {},
 ): Promise<void> => {
   const startTime = Date.now();
   session.addMessage("user", message);
 
   try {
     logFile(session.getHistory());
-
-    const callbacks = createCallbacks({
-      showThinking: options.showThinking ?? false,
-      onToken: (token) => {
-        process.stdout.write(token);
-      },
-    });
-
     const fullResponse = await executeToolLoop(
       client,
       session,
       toolRegistry!,
       tools ?? [],
-      callbacks,
+      {
+        onToken: (token) => {
+          process.stdout.write(token);
+        },
+      },
     );
 
     session.addMessage("assistant", fullResponse);

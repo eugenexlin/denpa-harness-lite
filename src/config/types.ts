@@ -10,6 +10,7 @@ export interface UserConfig {
   max_parallel_agents: number;
   agent_block_prompt: boolean;
   show_thinking: boolean;
+  show_tool_result: boolean;
   system_prompt_append?: string;
 }
 
@@ -19,6 +20,7 @@ export interface ProjectConfig {
   max_parallel_agents?: number;
   agent_block_prompt?: boolean;
   show_thinking?: boolean;
+  show_tool_result?: boolean;
   system_prompt_append?: string;
 }
 
@@ -44,6 +46,7 @@ export interface ResolvedConfig {
   agentBlockPrompt: boolean;
   sandboxPaths: string[];
   showThinking: boolean;
+  showToolResult: boolean;
   systemPromptAppend: string;
   mode: HarnessMode;
   projectRoot: string | null;
@@ -55,6 +58,7 @@ export const DEFAULTS: Omit<UserConfig, "models"> = {
   max_parallel_agents: 0,
   agent_block_prompt: true,
   show_thinking: false,
+  show_tool_result: false,
   system_prompt_append: "",
 };
 

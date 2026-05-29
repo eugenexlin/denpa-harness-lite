@@ -5,7 +5,10 @@ import type {
 } from "./internal";
 
 export type { ToolResult };
-import type { PermissionsConfig, ToolPermissionState } from "../../config/types";
+import type {
+  PermissionsConfig,
+  ToolPermissionState,
+} from "../../config/types";
 import { createFilesystemTool, type FilesystemToolOptions } from "./filesystem";
 import {
   loadCustomTools,
@@ -15,7 +18,11 @@ import {
 import type { ToolContextOptions } from "./context";
 
 export interface ToolRegistry {
-  register: (name: string, handler: ToolHandler, definition: InternalToolDefinition) => void;
+  register: (
+    name: string,
+    handler: ToolHandler,
+    definition: InternalToolDefinition,
+  ) => void;
   getDefinition: (name: string) => InternalToolDefinition | undefined;
   getDefinitions: () => InternalToolDefinition[];
   execute: (name: string, args: Record<string, unknown>) => Promise<ToolResult>;
@@ -25,7 +32,11 @@ export interface ToolRegistry {
 }
 
 export interface ToolApprovalCallback {
-  (name: string, definition: InternalToolDefinition, args: Record<string, unknown>): Promise<ToolPermissionState>;
+  (
+    name: string,
+    definition: InternalToolDefinition,
+    args: Record<string, unknown>,
+  ): Promise<ToolPermissionState>;
 }
 
 export interface PermissionChangeCallback {
@@ -37,7 +48,10 @@ export const createToolRegistry = (
   onToolPending?: ToolApprovalCallback,
   onPermissionChange?: PermissionChangeCallback,
 ): ToolRegistry => {
-  const tools = new Map<string, { handler: ToolHandler; definition: InternalToolDefinition }>();
+  const tools = new Map<
+    string,
+    { handler: ToolHandler; definition: InternalToolDefinition }
+  >();
   const deniedLog: string[] = [];
   let currentApprovalCallback: ToolApprovalCallback | undefined = onToolPending;
 
@@ -51,7 +65,11 @@ export const createToolRegistry = (
   };
 
   return {
-    register: (name: string, handler: ToolHandler, definition: InternalToolDefinition): void => {
+    register: (
+      name: string,
+      handler: ToolHandler,
+      definition: InternalToolDefinition,
+    ): void => {
       tools.set(name, { handler, definition });
     },
 
@@ -60,12 +78,13 @@ export const createToolRegistry = (
     },
 
     getDefinitions: (): InternalToolDefinition[] => {
-      return Array.from(tools.entries())
-        .filter(([name]) => isToolApproved(name))
-        .map(([, t]) => t.definition);
+      return Array.from(tools.entries()).map(([, t]) => t.definition);
     },
 
-    execute: async (name: string, args: Record<string, unknown>): Promise<ToolResult> => {
+    execute: async (
+      name: string,
+      args: Record<string, unknown>,
+    ): Promise<ToolResult> => {
       const tool = tools.get(name);
       if (!tool) {
         return { content: `Unknown tool: ${name}`, isError: true };
@@ -92,7 +111,11 @@ export const createToolRegistry = (
       }
 
       if (currentApprovalCallback) {
-        const decision = await currentApprovalCallback(name, tool.definition, args);
+        const decision = await currentApprovalCallback(
+          name,
+          tool.definition,
+          args,
+        );
 
         if (decision === "approve_always") {
           permissions.tools = permissions.tools ?? {};
@@ -137,14 +160,16 @@ export const createToolRegistry = (
     },
 
     list: (): string[] => {
-      return Array.from(tools.keys()).filter((name) => isToolApproved(name));
+      return Array.from(tools.keys());
     },
 
     getDeniedTools: (): string[] => {
       return deniedLog;
     },
 
-    updateApprovalCallback: (callback: ToolApprovalCallback | undefined): void => {
+    updateApprovalCallback: (
+      callback: ToolApprovalCallback | undefined,
+    ): void => {
       currentApprovalCallback = callback;
     },
   };
@@ -160,94 +185,87 @@ export interface DefaultRegistryOptions {
   toolContextOptions?: ToolContextOptions;
 }
 
-export const createDefaultRegistry = async (options: DefaultRegistryOptions = {}): Promise<ToolRegistry> => {
-  const registry = createToolRegistry(options.permissions, options.onToolPending, options.onPermissionChange);
+export const createDefaultRegistry = async (
+  options: DefaultRegistryOptions = {},
+): Promise<ToolRegistry> => {
+  const registry = createToolRegistry(
+    options.permissions,
+    options.onToolPending,
+    options.onPermissionChange,
+  );
   const fs = createFilesystemTool({
     sandboxPaths: options.sandboxPaths,
     onSensitivePath: options.onSensitivePath,
   });
 
   const customToolsDirs = options.customToolsDirs ?? [];
-  const contextOptions: ToolContextOptions | undefined = options.toolContextOptions ?? {
-    sandboxPaths: options.sandboxPaths,
-  };
+  const contextOptions: ToolContextOptions | undefined =
+    options.toolContextOptions ?? {
+      sandboxPaths: options.sandboxPaths,
+    };
   const loadedCustomTools: LoadedTool[] = [];
   for (const dir of customToolsDirs) {
     const loaded = await loadCustomTools(dir, contextOptions);
     loadedCustomTools.push(...loaded);
   }
 
-  registry.register(
-    "read_file",
-    (args) => fs.read_file(args),
-    {
-      name: "read_file",
-      description: "Read the contents of a file. Returns file content as a string.",
-      parameters: {
-        path: {
-          type: "string",
-          description: "Path to the file to read",
-        },
+  registry.register("read_file", (args) => fs.read_file(args), {
+    name: "read_file",
+    description:
+      "Read the contents of a file. Returns file content as a string.",
+    parameters: {
+      path: {
+        type: "string",
+        description: "Path to the file to read",
       },
-      required: ["path"],
     },
-  );
+    required: ["path"],
+  });
 
-  registry.register(
-    "write_file",
-    (args) => fs.write_file(args),
-    {
-      name: "write_file",
-      description: "Write content to a file. Creates the file if it doesn't exist, overwrites if it does.",
-      parameters: {
-        path: {
-          type: "string",
-          description: "Path to the file to write",
-        },
-        content: {
-          type: "string",
-          description: "Content to write to the file",
-        },
+  registry.register("write_file", (args) => fs.write_file(args), {
+    name: "write_file",
+    description:
+      "Write content to a file. Creates the file if it doesn't exist, overwrites if it does.",
+    parameters: {
+      path: {
+        type: "string",
+        description: "Path to the file to write",
       },
-      required: ["path", "content"],
+      content: {
+        type: "string",
+        description: "Content to write to the file",
+      },
     },
-  );
+    required: ["path", "content"],
+  });
 
-  registry.register(
-    "list_dir",
-    (args) => fs.list_dir(args),
-    {
-      name: "list_dir",
-      description: "List files and directories in the given path.",
-      parameters: {
-        path: {
-          type: "string",
-          description: "Directory path to list (default: current directory)",
-        },
+  registry.register("list_dir", (args) => fs.list_dir(args), {
+    name: "list_dir",
+    description: "List files and directories in the given path.",
+    parameters: {
+      path: {
+        type: "string",
+        description: "Directory path to list (default: current directory)",
       },
-      required: ["path"],
     },
-  );
+    required: ["path"],
+  });
 
-  registry.register(
-    "find_files",
-    (args) => fs.find_files(args),
-    {
-      name: "find_files",
-      description: "Search for files matching a glob pattern.",
-      parameters: {
-        pattern: {
-          type: "string",
-          description: "Glob pattern to search for (e.g., '*.ts', 'src/**/*.js')",
-        },
-        path: {
-          type: "string",
-          description: "Directory to search in (default: current directory)",
-        },
+  registry.register("find_files", (args) => fs.find_files(args), {
+    name: "find_files",
+    description: "Search for files matching a glob pattern.",
+    parameters: {
+      pattern: {
+        type: "string",
+        description: "Glob pattern to search for (e.g., '*.ts', 'src/**/*.js')",
       },
-      required: ["pattern"],
+      path: {
+        type: "string",
+        description: "Directory to search in (default: current directory)",
+      },
     },
-  );
+    required: ["pattern"],
+  });
 
   for (const tool of loadedCustomTools) {
     registry.register(tool.name, tool.handler, tool.definition);

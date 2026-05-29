@@ -10,11 +10,12 @@ import type {
 } from "./types";
 import { DEFAULTS, DEFAULT_PERMISSIONS } from "./types";
 
-export const getHomeDir = (): string => process.env.HOME || process.env.USERPROFILE || "";
+export const getHomeDir = (): string =>
+  process.env.HOME || process.env.USERPROFILE || "";
 
 const resolveHome = (path: string): string => path.replace("~", getHomeDir());
 
-const loadJson = <T,>(filePath: string): T | null => {
+const loadJson = <T>(filePath: string): T | null => {
   if (!existsSync(filePath)) return null;
   try {
     return JSON.parse(readFileSync(filePath, "utf-8")) as T;
@@ -47,10 +48,18 @@ const findGitRoot = (cwd: string): string | null => {
 };
 
 export interface ConfigManager {
-  resolve: (cliOverrides?: { model?: string; apiKey?: string; baseUrl?: string; provider?: string }) => ResolvedConfig;
+  resolve: (cliOverrides?: {
+    model?: string;
+    apiKey?: string;
+    baseUrl?: string;
+    provider?: string;
+  }) => ResolvedConfig;
   saveUserConfig: (config: Partial<UserConfig>) => void;
   saveProjectConfig: (config: Partial<ProjectConfig>) => void;
-  savePermissions: (config: Partial<PermissionsConfig>, mode?: HarnessMode) => void;
+  savePermissions: (
+    config: Partial<PermissionsConfig>,
+    mode?: HarnessMode,
+  ) => void;
   getUserConfig: () => UserConfig | null;
   getProjectConfig: () => ProjectConfig | null;
   getPermissions: () => PermissionsConfig | null;
@@ -64,7 +73,9 @@ export const createConfigManager = (cwd: string): ConfigManager => {
   const mode: HarnessMode = gitRoot ? "project" : "system";
   const projectRoot = gitRoot;
 
-  const projectConfigPath = gitRoot ? join(gitRoot, ".denpa", "config.json") : null;
+  const projectConfigPath = gitRoot
+    ? join(gitRoot, ".denpa", "config.json")
+    : null;
   const permissionsPath = gitRoot
     ? join(gitRoot, ".denpa", "permissions.json")
     : join(resolveHome("~/.denpa/permissions.json"));
@@ -79,10 +90,14 @@ export const createConfigManager = (cwd: string): ConfigManager => {
     return {
       models,
       default_model: raw?.default_model ?? DEFAULTS.default_model,
-      max_parallel_agents: raw?.max_parallel_agents ?? DEFAULTS.max_parallel_agents,
-      agent_block_prompt: raw?.agent_block_prompt ?? DEFAULTS.agent_block_prompt,
+      max_parallel_agents:
+        raw?.max_parallel_agents ?? DEFAULTS.max_parallel_agents,
+      agent_block_prompt:
+        raw?.agent_block_prompt ?? DEFAULTS.agent_block_prompt,
       show_thinking: raw?.show_thinking ?? DEFAULTS.show_thinking,
-      system_prompt_append: raw?.system_prompt_append ?? DEFAULTS.system_prompt_append,
+      show_tool_result: raw?.show_tool_result ?? DEFAULTS.show_tool_result,
+      system_prompt_append:
+        raw?.system_prompt_append ?? DEFAULTS.system_prompt_append,
     };
   };
 
@@ -100,7 +115,10 @@ export const createConfigManager = (cwd: string): ConfigManager => {
     };
   };
 
-  const mergeModels = (user: UserConfig, project: ProjectConfig): Record<string, ModelConfig> => {
+  const mergeModels = (
+    user: UserConfig,
+    project: ProjectConfig,
+  ): Record<string, ModelConfig> => {
     const merged = { ...user.models };
     if (project.models) {
       for (const [name, config] of Object.entries(project.models)) {
@@ -154,7 +172,7 @@ export const createConfigManager = (cwd: string): ConfigManager => {
         model = envModel;
       } else {
         throw new Error(
-          "No model configured. Add a model to ~/.denpa/config.json or set OPENAI_API_KEY env var."
+          "No model configured. Add a model to ~/.denpa/config.json or set OPENAI_API_KEY env var.",
         );
       }
 
@@ -162,11 +180,19 @@ export const createConfigManager = (cwd: string): ConfigManager => {
         model,
         models: mergedModels,
         defaultModelName,
-        maxParallelAgents: projectConfig?.max_parallel_agents ?? userConfig.max_parallel_agents,
-        agentBlockPrompt: projectConfig?.agent_block_prompt ?? userConfig.agent_block_prompt,
-        sandboxPaths: permissions.sandbox_paths ?? DEFAULT_PERMISSIONS.sandbox_paths ?? ["."],
+        maxParallelAgents:
+          projectConfig?.max_parallel_agents ?? userConfig.max_parallel_agents,
+        agentBlockPrompt:
+          projectConfig?.agent_block_prompt ?? userConfig.agent_block_prompt,
+        sandboxPaths: permissions.sandbox_paths ??
+          DEFAULT_PERMISSIONS.sandbox_paths ?? ["."],
         showThinking: projectConfig?.show_thinking ?? userConfig.show_thinking,
-        systemPromptAppend: projectConfig?.system_prompt_append ?? userConfig.system_prompt_append ?? "",
+        showToolResult:
+          projectConfig?.show_tool_result ?? userConfig.show_tool_result,
+        systemPromptAppend:
+          projectConfig?.system_prompt_append ??
+          userConfig.system_prompt_append ??
+          "",
         mode,
         projectRoot,
         permissions,
@@ -190,10 +216,14 @@ export const createConfigManager = (cwd: string): ConfigManager => {
       projectConfig = merged;
     },
 
-    savePermissions: (config: Partial<PermissionsConfig>, targetMode?: HarnessMode): void => {
-      const targetPath = targetMode === "system"
-        ? join(resolveHome("~/.denpa/permissions.json"))
-        : permissionsPath;
+    savePermissions: (
+      config: Partial<PermissionsConfig>,
+      targetMode?: HarnessMode,
+    ): void => {
+      const targetPath =
+        targetMode === "system"
+          ? join(resolveHome("~/.denpa/permissions.json"))
+          : permissionsPath;
       permissions ??= loadPermissions();
       const merged = { ...permissions, ...config } as PermissionsConfig;
       saveJson(targetPath, merged);

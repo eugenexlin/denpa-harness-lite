@@ -8,7 +8,9 @@ export const buildSystemPrompt = (options: {
 }): string => {
   const lines: string[] = [];
 
-  lines.push("You are an ai coding assistant. Be concise and direct.");
+  lines.push(
+    "You are an ai coding assistant. You help the user with requests, and help explain unusual behavior.  Be concise and direct.",
+  );
   lines.push("");
   lines.push(`Working directory: ${options.cwd}`);
   lines.push(`OS: ${options.platform}`);
@@ -17,9 +19,9 @@ export const buildSystemPrompt = (options: {
     lines.push(`Project root: ${options.projectRoot}`);
   }
 
-  if (options.sandboxPaths.length > 0) {
-    lines.push(`Sandbox paths: ${options.sandboxPaths.join(", ")}`);
-  }
+  // if (options.sandboxPaths.length > 0) {
+  //   lines.push(`Sandbox paths: ${options.sandboxPaths.join(", ")}`);
+  // }
 
   if (options.toolNames.length > 0) {
     lines.push("");

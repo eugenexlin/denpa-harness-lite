@@ -2,7 +2,7 @@ import type { APIClient } from "../api/client";
 import type { Session } from "./session";
 import type { ToolRegistry } from "./tool/registry";
 import type { ToolResult } from "./tool/internal";
-import type { InternalToolDefinition, InternalToolCall } from "./tool/internal";
+import type { InternalToolDefinition } from "./tool/internal";
 
 export interface ToolLoopCallbacks {
   onToken?: (token: string) => void;
@@ -17,7 +17,7 @@ export const executeToolLoop = async (
   session: Session,
   toolRegistry: ToolRegistry,
   tools: InternalToolDefinition[],
-  callbacks: ToolLoopCallbacks = {},
+  callbacks: ToolLoopCallbacks,
   signal?: AbortSignal,
 ): Promise<string> => {
   const { onToken, onThinking, onThinkingEnd, onToolCall, onToolResult } = callbacks;
@@ -50,6 +50,7 @@ export const executeToolLoop = async (
 
     session.addMessage("assistant", fullContent);
 
+    // THIS IS SYNCHRONOUS FOR SURE
     for (const tc of result.toolCalls) {
       if (signal?.aborted) break;
 

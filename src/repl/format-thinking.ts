@@ -1,4 +1,4 @@
-import { logFile } from "../debug-logger";
+import { logFile } from "../utils/debug-logger";
 import { ANSI, wrapFgRgb } from "../terminal/ansi";
 import { wrapText } from "../terminal/wrap";
 

@@ -25,6 +25,12 @@ export const createSubagentManager = (
   const agents = new Map<number, Subagent>();
   let nextId = 1;
 
+  const getRunning = (): Subagent[] => {
+    return Array.from(agents.values()).filter(
+      (a) => a.getStatus() === "running",
+    );
+  };
+
   return {
     spawn: (prompt: string, parentContext: Message[]): Subagent => {
       const id = nextId++;
@@ -54,11 +60,7 @@ export const createSubagentManager = (
       return Array.from(agents.values());
     },
 
-    getRunning: (): Subagent[] => {
-      return Array.from(agents.values()).filter(
-        (a) => a.getStatus() === "running",
-      );
-    },
+    getRunning: getRunning,
 
     getCompleted: (): Subagent[] => {
       return Array.from(agents.values()).filter(

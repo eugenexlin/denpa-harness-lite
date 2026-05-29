@@ -1,4 +1,4 @@
-import { logFile } from "../debug-logger";
+import { logFile } from "../utils/debug-logger";
 import {
   clearFromCursor,
   ESC,

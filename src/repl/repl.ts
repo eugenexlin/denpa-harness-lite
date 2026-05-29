@@ -7,10 +7,12 @@ import type {
   ToolApprovalCallback,
 } from "../agent/tool/registry";
 import type { StatsDB } from "../stats/db";
-import type { ToolPermissionState } from "../config/types";
-import type { InternalToolDefinition } from "../agent/tool/internal";
-import { executeToolLoop } from "../agent/tool-loop";
-import { createCallbacks, formatDuration } from "../agent/tool-loop-callbacks";
+import type { ResolvedConfig, ToolPermissionState } from "../config/types";
+import type {
+  InternalToolDefinition,
+  ToolResult,
+} from "../agent/tool/internal";
+import { executeToolLoop, type ToolLoopCallbacks } from "../agent/tool-loop";
 import { ANSI, clearFromCursor, wrapFgRgb } from "../terminal/ansi";
 import { createOutputBuffer } from "./output-buffer";
 import { formatThinking } from "./format-thinking";
@@ -21,14 +23,11 @@ import {
   type PanelMode,
 } from "./panel";
 import { CHARS } from "../terminal/special-chars";
+import { formatDuration } from "../utils/string-formatter";
 
 export interface Repl {
   run: () => Promise<void>;
   stop: () => void;
-}
-
-export interface ReplOptions {
-  showThinking?: boolean;
 }
 
 export const createRepl = (
@@ -37,9 +36,8 @@ export const createRepl = (
   agentManager: SubagentManager,
   toolRegistry: ToolRegistry,
   statsDB: StatsDB,
-  options: ReplOptions = {},
+  config: ResolvedConfig,
 ): Repl => {
-  const showThinking = options.showThinking ?? false;
   let userInput: string = "";
   let userInputWithAnsiCursor: string = "";
   let isThinking = false;
@@ -294,34 +292,52 @@ export const createRepl = (
     let tokensOut = 0;
 
     try {
-      const callbacks = createCallbacks({
-        showThinking,
-        onToken: (token) => {
+      const callbacks: ToolLoopCallbacks = {
+        onToken: (token: string) => {
           outputBuffer.scroll(token);
         },
-        onThinking: (chunk) => {
+        onThinking: (chunk: string) => {
           if (!isThinking) {
             isThinking = true;
-            if (showThinking) {
+            if (config.showThinking) {
               outputBuffer.scroll("\n");
             }
           }
-          if (showThinking && chunk) {
+          if (config.showThinking && chunk) {
             outputBuffer.scroll(
               formatThinking(chunk, outputBuffer.getCursorCol()),
             );
           }
           rerenderPanel();
         },
-        onThinkingEnd: (durationMs) => {
-          if (showThinking) {
-            if (outputBuffer.getCursorCol() > 1) {
-              outputBuffer.scroll("\n");
-            }
-          }
+        onThinkingEnd: (durationMs: number) => {
           isThinking = false;
+          const seconds = Math.max(1, Math.ceil(durationMs / 1000));
+          const formatTime = seconds + "s";
+          if (config?.showThinking) {
+            outputBuffer.scroll("\n");
+          }
+          outputBuffer.scroll(
+            wrapFgRgb(ANSI.color_ref.thinking, `Thought for ${formatTime}\n\n`),
+          );
         },
-      });
+        onToolCall: (name: string, args: Record<string, unknown>) => {
+          const argStr = Object.entries(args)
+            .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
+            .join(", ");
+          outputBuffer.scroll(
+            `\n${wrapFgRgb(ANSI.color.amber700, `🔧 ${name}(${argStr})`)}`,
+          );
+        },
+        onToolResult: (name: string, result: ToolResult) => {
+          const prefix = result.isError
+            ? wrapFgRgb(ANSI.color.red500, "✗")
+            : wrapFgRgb(ANSI.color.green500, "✓");
+          outputBuffer.scroll(
+            `${prefix} ${name}:\n ${config?.showToolResult ? result.content : ""}`,
+          );
+        },
+      };
 
       const fullResponse = await executeToolLoop(
         client,

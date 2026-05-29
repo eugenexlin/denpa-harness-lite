@@ -11,6 +11,7 @@ import { createRepl } from "./repl/repl";
 import { runCLI } from "./cli/cli";
 import { openAIFormatter } from "./agent/tool/formatter";
 import { ANSI, wrapFgRgb } from "./terminal/ansi";
+import type { ResolvedConfig } from "./config/types";
 
 const main = async (): Promise<void> => {
   process.stdin.setRawMode(true);
@@ -44,7 +45,7 @@ const main = async (): Promise<void> => {
 
   // Init config
   const configManager = createConfigManager(process.cwd());
-  const config = configManager.resolve({
+  const config: ResolvedConfig = configManager.resolve({
     model: cliModel,
     apiKey: cliApiKey,
     baseUrl: cliBaseUrl,
@@ -124,9 +125,12 @@ const main = async (): Promise<void> => {
       client,
       session,
       statsDB,
+      {
+        ...config,
+        ...(cliVerbose ? { showThinking: true, showToolResult: true } : {}),
+      },
       toolRegistry.getDefinitions(),
       toolRegistry,
-      { showThinking: cliVerbose },
     );
     const denied = toolRegistry.getDeniedTools();
     if (denied.length > 0) {
@@ -144,7 +148,7 @@ const main = async (): Promise<void> => {
       agentManager,
       toolRegistry,
       statsDB,
-      { showThinking: config.showThinking },
+      config,
     );
     repl.run().finally(() => {
       repl.stop();
