@@ -3,6 +3,7 @@ import type {
   ToolHandler,
   ToolResult,
 } from "./internal";
+import { TOOL_GUIDELINES } from "../guidelines";
 
 export type { ToolResult };
 import type {
@@ -29,6 +30,7 @@ export interface ToolRegistry {
   list: () => string[];
   getDeniedTools: () => string[];
   updateApprovalCallback: (callback: ToolApprovalCallback | undefined) => void;
+  setReadonlyMode: (readonly: boolean) => void;
 }
 
 export interface ToolApprovalCallback {
@@ -54,6 +56,7 @@ export const createToolRegistry = (
   >();
   const deniedLog: string[] = [];
   let currentApprovalCallback: ToolApprovalCallback | undefined = onToolPending;
+  let isReadonlyMode = true;
 
   const isToolApproved = (name: string): boolean => {
     const toolPerms = permissions.tools?.[name];
@@ -88,6 +91,13 @@ export const createToolRegistry = (
       const tool = tools.get(name);
       if (!tool) {
         return { content: `Unknown tool: ${name}`, isError: true };
+      }
+
+      if (isReadonlyMode && tool.definition.writeOnly) {
+        return {
+          content: `Tool '${name}' cannot be used in Read mode. Use Tab to switch to Write mode.`,
+          isError: true,
+        };
       }
 
       if (isToolApproved(name)) {
@@ -172,6 +182,10 @@ export const createToolRegistry = (
     ): void => {
       currentApprovalCallback = callback;
     },
+
+    setReadonlyMode: (readonly: boolean): void => {
+      isReadonlyMode = readonly;
+    },
   };
 };
 
@@ -209,8 +223,8 @@ export const createDefaultRegistry = async (
     loadedCustomTools.push(...loaded);
   }
 
-  registry.register("read_file", (args) => fs.read_file(args), {
-    name: "read_file",
+  registry.register("read", (args) => fs.read_file(args), {
+    name: "read",
     description:
       "Read the contents of a file. Returns file content as a string.",
     parameters: {
@@ -220,10 +234,11 @@ export const createDefaultRegistry = async (
       },
     },
     required: ["path"],
+    guidelines: TOOL_GUIDELINES.read,
   });
 
-  registry.register("write_file", (args) => fs.write_file(args), {
-    name: "write_file",
+  registry.register("write", (args) => fs.write_file(args), {
+    name: "write",
     description:
       "Write content to a file. Creates the file if it doesn't exist, overwrites if it does.",
     parameters: {
@@ -237,10 +252,12 @@ export const createDefaultRegistry = async (
       },
     },
     required: ["path", "content"],
+    guidelines: TOOL_GUIDELINES.write,
+    writeOnly: true,
   });
 
-  registry.register("list_dir", (args) => fs.list_dir(args), {
-    name: "list_dir",
+  registry.register("ls", (args) => fs.list_dir(args), {
+    name: "ls",
     description: "List files and directories in the given path.",
     parameters: {
       path: {
@@ -249,10 +266,11 @@ export const createDefaultRegistry = async (
       },
     },
     required: ["path"],
+    guidelines: TOOL_GUIDELINES.ls,
   });
 
-  registry.register("find_files", (args) => fs.find_files(args), {
-    name: "find_files",
+  registry.register("find", (args) => fs.find_files(args), {
+    name: "find",
     description: "Search for files matching a glob pattern.",
     parameters: {
       pattern: {
@@ -265,6 +283,7 @@ export const createDefaultRegistry = async (
       },
     },
     required: ["pattern"],
+    guidelines: TOOL_GUIDELINES.find,
   });
 
   for (const tool of loadedCustomTools) {

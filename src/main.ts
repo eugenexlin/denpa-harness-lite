@@ -105,6 +105,7 @@ const main = async (): Promise<void> => {
     sandboxPaths: config.sandboxPaths,
     toolNames: toolRegistry.list(),
     userAppend: config.systemPromptAppend,
+    guidelines: config.guidelines,
   });
 
   session.setSystemPrompt(systemPrompt);

@@ -3,7 +3,7 @@ import type { Message } from "../api/types";
 export interface Session {
   getMessages: () => Message[];
   addMessage: (
-    role: "user" | "assistant" | "tool",
+    role: "user" | "assistant" | "tool" | "system",
     content: string,
     options?: { tool_call_id?: string },
   ) => void;
@@ -21,7 +21,7 @@ export const createSession = (systemPrompt: string = ""): Session => {
     getMessages: (): Message[] => messages,
 
     addMessage: (
-      role: "user" | "assistant" | "tool",
+      role: "user" | "assistant" | "tool" | "system",
       content: string,
       options?: { tool_call_id?: string },
     ): void => {

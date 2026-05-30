@@ -4,6 +4,7 @@ export interface InputManagerProps {
   onUserInputUpdate: (input: string, render: string) => void;
   onSubmit: (input: string) => void; // on submit contains the entire buffer anyways to cover if your user is apm freak
   onTerminate: () => void;
+  onTab?: () => void;
 }
 
 export interface InputManager {
@@ -43,7 +44,7 @@ const getGraphemes = (str: string): string[] =>
   [...segmenter.segment(str)].map((s) => s.segment);
 
 export const createInputManager = (props: InputManagerProps): InputManager => {
-  const { onUserInputUpdate, onSubmit, onTerminate } = props;
+  const { onUserInputUpdate, onSubmit, onTerminate, onTab } = props;
   let buffer = "";
   let cursor = 0;
   let escapeSequence = "";
@@ -371,6 +372,13 @@ export const createInputManager = (props: InputManagerProps): InputManager => {
       if (char === "\x1b") {
         // escape header
         escapeSequence = char;
+        continue;
+      }
+
+      if (char === "\x09") {
+        // tab
+        clearExitTimeout();
+        onTab?.();
         continue;
       }
 

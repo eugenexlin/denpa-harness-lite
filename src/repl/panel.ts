@@ -115,7 +115,7 @@ export const renderPanel = (props: PanelProps): PanelLine[] => {
 
   if (props.isThinking) {
     result.push(
-      wrapFgRgb(ANSI.color_ref.thinking, `${getSandKeyFrame()}Thinking$\n\n`),
+      wrapFgRgb(ANSI.color_ref.thinking, `${getSandKeyFrame()}Thinking\n\n`),
     );
   }
 

@@ -1,3 +1,5 @@
+import { SYSTEM_GUIDELINES, SYSTEM_PROMPT } from "./guidelines";
+
 export const buildSystemPrompt = (options: {
   cwd: string;
   platform: string;
@@ -5,18 +7,30 @@ export const buildSystemPrompt = (options: {
   sandboxPaths: string[];
   toolNames: string[];
   userAppend: string;
+  guidelines?: string[];
 }): string => {
   const lines: string[] = [];
 
-  lines.push(
-    "You are an ai coding assistant. You help the user with requests, and help explain unusual behavior.  Be concise and direct.",
-  );
+  lines.push(SYSTEM_PROMPT);
   lines.push("");
   lines.push(`Working directory: ${options.cwd}`);
   lines.push(`OS: ${options.platform}`);
 
   if (options.projectRoot) {
     lines.push(`Project root: ${options.projectRoot}`);
+  }
+
+  lines.push("");
+  lines.push("Guidelines:");
+  for (const g of SYSTEM_GUIDELINES) {
+    lines.push(`- ${g}`);
+  }
+
+  if (options.guidelines?.length) {
+    lines.push("");
+    for (const g of options.guidelines) {
+      lines.push(`- ${g}`);
+    }
   }
 
   // if (options.sandboxPaths.length > 0) {

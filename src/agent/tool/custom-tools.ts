@@ -12,6 +12,8 @@ export interface ToolManifest {
     properties: Record<string, ToolManifestParam>;
     required?: string[];
   };
+  guidelines?: readonly string[];
+  writeOnly?: boolean;
 }
 
 export interface ToolManifestParam {
@@ -105,6 +107,8 @@ const toToolDefinition = (manifest: ToolManifest): InternalToolDefinition => ({
     Object.entries(manifest.parameters.properties).map(([k, v]) => [k, toManifestParam(v)])
   ),
   required: manifest.parameters.required,
+  guidelines: manifest.guidelines,
+  writeOnly: manifest.writeOnly,
 });
 
 const loadHandler = async (

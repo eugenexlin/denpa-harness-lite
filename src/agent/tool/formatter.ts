@@ -49,7 +49,9 @@ const openAIFormatter: ToolFormatter = {
       type: "function" as const,
       function: {
         name: tool.name,
-        description: tool.description,
+        description: tool.guidelines?.length
+          ? `${tool.description}\n\nGuidelines:\n${tool.guidelines.map((g) => `- ${g}`).join("\n")}`
+          : tool.description,
         parameters: {
           type: "object" as const,
           properties: Object.fromEntries(

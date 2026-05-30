@@ -12,6 +12,7 @@ export interface UserConfig {
   show_thinking: boolean;
   show_tool_result: boolean;
   system_prompt_append?: string;
+  guidelines?: string[];
 }
 
 export interface ProjectConfig {
@@ -22,6 +23,7 @@ export interface ProjectConfig {
   show_thinking?: boolean;
   show_tool_result?: boolean;
   system_prompt_append?: string;
+  guidelines?: string[];
 }
 
 export type ToolPermissionState = "approve_once" | "approve_always" | "deny";
@@ -48,9 +50,14 @@ export interface ResolvedConfig {
   showThinking: boolean;
   showToolResult: boolean;
   systemPromptAppend: string;
+  guidelines: string[];
   mode: HarnessMode;
   projectRoot: string | null;
   permissions: PermissionsConfig;
+}
+export interface OutputVisibilityConfig {
+  showThinking: boolean;
+  showToolResult: boolean;
 }
 
 export const DEFAULTS: Omit<UserConfig, "models"> = {
@@ -60,6 +67,7 @@ export const DEFAULTS: Omit<UserConfig, "models"> = {
   show_thinking: false,
   show_tool_result: false,
   system_prompt_append: "",
+  guidelines: [],
 };
 
 export const DEFAULT_PERMISSIONS: PermissionsConfig = {

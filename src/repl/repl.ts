@@ -43,6 +43,7 @@ export const createRepl = (
   let isThinking = false;
   let isStreaming = false;
   let isReadonlyMode = true;
+  let lastSentMode: "read" | "write" | null = null;
   let agentRunning = false;
   let panelMode: PanelMode = "input";
   let pendingToolName: string | null = null;
@@ -102,6 +103,16 @@ export const createRepl = (
     onTerminate: () => {
       outputBuffer.scroll("terminate\n");
       terminateMe();
+    },
+    onTab: () => {
+      isReadonlyMode = !isReadonlyMode;
+      toolRegistry.setReadonlyMode(isReadonlyMode);
+      const newMode: "read" | "write" = isReadonlyMode ? "read" : "write";
+      if (newMode !== lastSentMode) {
+        session.addMessage("system", isReadonlyMode ? "You are now in Read mode." : "You are now in Write mode.");
+        lastSentMode = newMode;
+      }
+      rerenderPanel();
     },
   });
 
@@ -189,7 +200,10 @@ export const createRepl = (
 
     slashCommands.set("clear", async () => {
       session.clear();
-      return "Session cleared.";
+      isReadonlyMode = true;
+      lastSentMode = null;
+      toolRegistry.setReadonlyMode(true);
+      return "Session cleared. Mode reset to Read.";
     });
 
     slashCommands.set("agents", async () => {
@@ -283,7 +297,7 @@ export const createRepl = (
     return;
   };
 
-  const handleSendToLlm = async (input: string): Promise<void> => {
+ const handleSendToLlm = async (input: string): Promise<void> => {
     session.addMessage("user", input);
     isStreaming = true;
 
@@ -330,12 +344,16 @@ export const createRepl = (
           );
         },
         onToolResult: (name: string, result: ToolResult) => {
-          const prefix = result.isError
-            ? wrapFgRgb(ANSI.color.red500, "✗")
-            : wrapFgRgb(ANSI.color.green500, "✓");
           outputBuffer.scroll(
-            `${prefix} ${name}:\n ${config?.showToolResult ? result.content : ""}`,
+            result.isError
+              ? wrapFgRgb(ANSI.color.red500, "NG\n")
+              : wrapFgRgb(ANSI.color.green500, "OK\n"),
           );
+          if (config?.showToolResult) {
+            outputBuffer.scroll(
+              `${config?.showToolResult ? result.content : ""}\n`,
+            );
+          }
         },
       };
 
@@ -410,7 +428,7 @@ export const createRepl = (
       outputBuffer.scroll(
         wrapFgRgb(
           ANSI.color.gray500,
-          "Type a message or /help for commands. Ctrl+C to cancel.",
+          "Type a message or /help for commands. Tab to toggle Read/Write mode. Ctrl+C to cancel.",
         ),
       );
       outputBuffer.scroll("\n");

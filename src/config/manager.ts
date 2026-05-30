@@ -98,6 +98,7 @@ export const createConfigManager = (cwd: string): ConfigManager => {
       show_tool_result: raw?.show_tool_result ?? DEFAULTS.show_tool_result,
       system_prompt_append:
         raw?.system_prompt_append ?? DEFAULTS.system_prompt_append,
+      guidelines: raw?.guidelines ?? DEFAULTS.guidelines,
     };
   };
 
@@ -193,6 +194,10 @@ export const createConfigManager = (cwd: string): ConfigManager => {
           projectConfig?.system_prompt_append ??
           userConfig.system_prompt_append ??
           "",
+        guidelines: [
+          ...(userConfig.guidelines ?? []),
+          ...(projectConfig?.guidelines ?? []),
+        ],
         mode,
         projectRoot,
         permissions,

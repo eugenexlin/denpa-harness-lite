@@ -25,6 +25,8 @@ export interface InternalToolDefinition {
   description: string;
   parameters: Record<string, InternalToolParam>;
   required?: string[];
+  guidelines?: readonly string[];
+  writeOnly?: boolean;
 }
 
 export interface InternalToolCall {
