@@ -3,6 +3,7 @@ import { createConfigManager, getHomeDir } from "./config/manager";
 import { join } from "node:path";
 import { createStatsDB } from "./stats/db";
 import { createAPIClient } from "./api/client";
+import { createModelCache } from "./api/model-cache";
 import { createSession } from "./agent/session";
 import { createSubagentManager } from "./agent/subagent-manager";
 import { createDefaultRegistry } from "./agent/tool/registry";
@@ -62,6 +63,11 @@ const main = async (): Promise<void> => {
       `${denpaLabel} [${wrapFgRgb(ANSI.color.gray500, "system mode")}]`,
     );
   }
+  // Init model cache
+  const cachePath = join(getHomeDir(), ".denpa", "config-cache.json");
+  const modelCache = createModelCache(cachePath);
+  await modelCache.fetchIfNeeded(config.models);
+
   // Init stats DB
   const statsPath = "~/.denpa/stats.db";
   const statsDB = createStatsDB(statsPath.replace("~", getHomeDir()));

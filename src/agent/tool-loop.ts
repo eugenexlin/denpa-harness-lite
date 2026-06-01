@@ -48,7 +48,7 @@ export const executeToolLoop = async (
       break;
     }
 
-    session.addMessage("assistant", fullContent);
+    session.addMessage("assistant", iterationContent, { tool_calls: result.toolCalls });
 
     // THIS IS SYNCHRONOUS FOR SURE
     for (const tc of result.toolCalls) {

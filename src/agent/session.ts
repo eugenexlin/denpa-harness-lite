@@ -1,11 +1,11 @@
-import type { Message } from "../api/types";
+import type { Message, InternalToolCall } from "../api/types";
 
 export interface Session {
   getMessages: () => Message[];
   addMessage: (
     role: "user" | "assistant" | "tool" | "system",
     content: string,
-    options?: { tool_call_id?: string },
+    options?: { tool_call_id?: string; tool_calls?: InternalToolCall[] },
   ) => void;
   setSystemPrompt: (prompt: string) => void;
   clear: () => void;
@@ -23,11 +23,14 @@ export const createSession = (systemPrompt: string = ""): Session => {
     addMessage: (
       role: "user" | "assistant" | "tool" | "system",
       content: string,
-      options?: { tool_call_id?: string },
+      options?: { tool_call_id?: string; tool_calls?: InternalToolCall[] },
     ): void => {
       const msg: Message = { role, content };
       if (role === "tool" && options?.tool_call_id) {
         msg.tool_call_id = options.tool_call_id;
+      }
+      if (role === "assistant" && options?.tool_calls?.length) {
+        msg.tool_calls = options.tool_calls;
       }
       messages.push(msg);
     },

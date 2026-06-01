@@ -195,17 +195,17 @@ export const createOutputBuffer = (): OutputBuffer => {
   const buildPanel = (panelFlush: string[], isForceRender: boolean): string => {
     let out = saveCursor();
 
-    //special quick scenario, wipe all if the panel size is shrunk
-    if (lastRenderedPanelLines.length > resolvedPanelLines.length) {
-      out += clearFromCursor();
-      lastRenderedPanelLines = [];
-    }
+    out += clearFromCursor();
+    // //special quick scenario, wipe all if the panel size is shrunk
+    // if (lastRenderedPanelLines.length > resolvedPanelLines.length) {
+    //   lastRenderedPanelLines = [];
+    // }
 
     panelFlush.forEach((line, idx) => {
-      if (isForceRender || (lastRenderedPanelLines[idx] ?? null) !== line) {
-        out += moveTo(cursorRow + idx + 1, 1);
-        out += line;
-      }
+      out += moveTo(cursorRow + idx + 1, 1);
+      out += line;
+      // if (isForceRender || (lastRenderedPanelLines[idx] ?? null) !== line) {
+      // }
     });
     out += restoreCursor();
     lastRenderedPanelLines = resolvedPanelLines;

@@ -340,14 +340,14 @@ export const createRepl = (
             .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
             .join(", ");
           outputBuffer.scroll(
-            `\n${wrapFgRgb(ANSI.color.amber700, `🔧 ${name}(${argStr})`)}`,
+            `${wrapFgRgb(ANSI.color.amber700, `🔧${name}(${argStr})`)}`,
           );
         },
         onToolResult: (name: string, result: ToolResult) => {
           outputBuffer.scroll(
             result.isError
-              ? wrapFgRgb(ANSI.color.red500, "NG\n")
-              : wrapFgRgb(ANSI.color.green500, "OK\n"),
+              ? wrapFgRgb(ANSI.color.red500, " NG\n")
+              : wrapFgRgb(ANSI.color.green500, " OK\n"),
           );
           if (config?.showToolResult) {
             outputBuffer.scroll(

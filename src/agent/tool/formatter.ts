@@ -68,6 +68,19 @@ const openAIFormatter: ToolFormatter = {
       if (msg.role === "tool" && msg.tool_call_id) {
         return { ...base, tool_call_id: msg.tool_call_id };
       }
+      if (msg.role === "assistant" && msg.tool_calls?.length) {
+        return {
+          ...base,
+          tool_calls: msg.tool_calls.map((tc) => ({
+            id: tc.id,
+            type: "function" as const,
+            function: {
+              name: tc.name,
+              arguments: JSON.stringify(tc.arguments),
+            },
+          })),
+        };
+      }
       if (msg.name) {
         return { ...base, name: msg.name };
       }
