@@ -171,9 +171,10 @@ export const ANSI = {
 
   color_ref: {
     thinking: color.purple600,
+    user_cancelled: color.amber600,
     read_only: color.amber600,
     read_write: color.teal500,
-    tool: color.brown500,
+    tool: color.brown400,
   },
 } as const;
 

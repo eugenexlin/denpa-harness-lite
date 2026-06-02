@@ -98,6 +98,7 @@ export const renderToolApprovalPanel = (
   return lines;
 };
 
+// important note, 1 panel line should be 1 line by now, no \n allowed
 export const renderPanel = (props: PanelProps): PanelLine[] => {
   const result: PanelLine[] = [];
 
@@ -115,7 +116,7 @@ export const renderPanel = (props: PanelProps): PanelLine[] => {
 
   if (props.isThinking) {
     result.push(
-      wrapFgRgb(ANSI.color_ref.thinking, `${getSandKeyFrame()}Thinking\n\n`),
+      wrapFgRgb(ANSI.color_ref.thinking, `${getSandKeyFrame()}Thinking`),
     );
   }
 

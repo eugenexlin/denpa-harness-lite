@@ -5,6 +5,7 @@ export interface InputManagerProps {
   onSubmit: (input: string) => void; // on submit contains the entire buffer anyways to cover if your user is apm freak
   onTerminate: () => void;
   onTab?: () => void;
+  onInterrupt?: () => void;
 }
 
 export interface InputManager {
@@ -44,12 +45,13 @@ const getGraphemes = (str: string): string[] =>
   [...segmenter.segment(str)].map((s) => s.segment);
 
 export const createInputManager = (props: InputManagerProps): InputManager => {
-  const { onUserInputUpdate, onSubmit, onTerminate, onTab } = props;
+  const { onUserInputUpdate, onSubmit, onTerminate, onTab, onInterrupt } = props;
   let buffer = "";
   let cursor = 0;
   let escapeSequence = "";
   let isStarted = false;
   let isInputSupressed = false;
+  let bareEscTimeout: ReturnType<typeof setTimeout> | null = null;
 
   let cursorInterval: NodeJS.Timeout;
   let isCursorBlinkVisible = true;
@@ -162,6 +164,10 @@ export const createInputManager = (props: InputManagerProps): InputManager => {
   };
 
   const handleEscapeSequence = (char: string): void => {
+    if (bareEscTimeout !== null) {
+      clearTimeout(bareEscTimeout);
+      bareEscTimeout = null;
+    }
     escapeSequence += char;
 
     if (escapeSequence === "\x1b[A") {
@@ -370,7 +376,12 @@ export const createInputManager = (props: InputManagerProps): InputManager => {
       }
 
       if (char === "\x1b") {
-        // escape header
+        // Could be bare ESC (interrupt) or start of arrow key sequence
+        bareEscTimeout = setTimeout(() => {
+          bareEscTimeout = null;
+          escapeSequence = "";
+          onInterrupt?.();
+        }, 50);
         escapeSequence = char;
         continue;
       }
@@ -413,6 +424,10 @@ export const createInputManager = (props: InputManagerProps): InputManager => {
       if (exitTimeout) {
         clearTimeout(exitTimeout);
         exitTimeout = null;
+      }
+      if (bareEscTimeout) {
+        clearTimeout(bareEscTimeout);
+        bareEscTimeout = null;
       }
       isStarted = false;
     },

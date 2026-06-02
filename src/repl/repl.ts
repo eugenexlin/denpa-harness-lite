@@ -53,6 +53,7 @@ export const createRepl = (
   const outputBuffer = createOutputBuffer();
 
   let terminateMe: () => void = () => {};
+  let currentAbort: AbortController | null = null;
 
   const waitForTermination = () => {
     return new Promise<void>((resolve) => {
@@ -109,10 +110,20 @@ export const createRepl = (
       toolRegistry.setReadonlyMode(isReadonlyMode);
       const newMode: "read" | "write" = isReadonlyMode ? "read" : "write";
       if (newMode !== lastSentMode) {
-        session.addMessage("system", isReadonlyMode ? "You are now in Read mode." : "You are now in Write mode.");
+        session.addMessage(
+          "system",
+          isReadonlyMode
+            ? "You are now in Read mode."
+            : "You are now in Write mode.",
+        );
         lastSentMode = newMode;
       }
       rerenderPanel();
+    },
+    onInterrupt: () => {
+      if (currentAbort) {
+        currentAbort.abort();
+      }
     },
   });
 
@@ -297,9 +308,10 @@ export const createRepl = (
     return;
   };
 
- const handleSendToLlm = async (input: string): Promise<void> => {
+  const handleSendToLlm = async (input: string): Promise<void> => {
     session.addMessage("user", input);
     isStreaming = true;
+    currentAbort = new AbortController();
 
     const startTime = Date.now();
     let tokensIn = 0;
@@ -340,7 +352,7 @@ export const createRepl = (
             .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
             .join(", ");
           outputBuffer.scroll(
-            `${wrapFgRgb(ANSI.color.amber700, `🔧${name}(${argStr})`)}`,
+            `${wrapFgRgb(ANSI.color_ref.tool, `🔧${name}(${argStr})`)}`,
           );
         },
         onToolResult: (name: string, result: ToolResult) => {
@@ -363,6 +375,7 @@ export const createRepl = (
         toolRegistry,
         toolRegistry.getDefinitions(),
         callbacks,
+        currentAbort.signal,
       );
 
       outputBuffer.scroll("\n");
@@ -380,11 +393,18 @@ export const createRepl = (
 
       session.addMessage("assistant", fullResponse);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      outputBuffer.scroll(wrapFgRgb(ANSI.color.red500, `✗ ${message}`));
+      if (err instanceof Error && err.name === "AbortError") {
+        outputBuffer.scroll(
+          wrapFgRgb(ANSI.color_ref.user_cancelled, `\nUser Cancelled\n`),
+        );
+      } else {
+        const message = err instanceof Error ? err.message : String(err);
+        outputBuffer.scroll(wrapFgRgb(ANSI.color.red500, `Error: ${message}`));
+      }
     } finally {
       isStreaming = false;
       isThinking = false;
+      currentAbort = null;
     }
 
     const duration = Date.now() - startTime;
@@ -428,7 +448,7 @@ export const createRepl = (
       outputBuffer.scroll(
         wrapFgRgb(
           ANSI.color.gray500,
-          "Type a message or /help for commands. Tab to toggle Read/Write mode. Ctrl+C to cancel.",
+          "Type a message or /help for commands. Tab to toggle Read/Write mode. Esc to interrupt. Ctrl+C to exit.",
         ),
       );
       outputBuffer.scroll("\n");
