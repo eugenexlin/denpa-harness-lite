@@ -50,7 +50,8 @@ function main() {
   };
 
   const handleChunk = (chunk: Buffer | Uint8Array | string) => {
-    const str = typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8");
+    const str =
+      typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8");
     buffer += str;
 
     if (sequenceTimeout) clearTimeout(sequenceTimeout);
@@ -72,30 +73,33 @@ function main() {
     // Process as raw bytes to preserve exact character codes
     let i = 0;
     while (i < data.length) {
-      const byte = data[i];
-      
+      const byte = data[i] ?? 0;
+
       // Handle UTF-8 multi-byte sequences
       if (byte < 0x80) {
         // Single byte ASCII
         buffer += String.fromCharCode(byte);
         i++;
-      } else if (byte < 0xC0) {
+      } else if (byte < 0xc0) {
         // Continuation byte (shouldn't happen in well-formed UTF-8)
         buffer += String.fromCharCode(byte);
         i++;
-      } else if (byte < 0xE0) {
+      } else if (byte < 0xe0) {
         // 2-byte UTF-8
         if (i + 1 < data.length) {
-          const code = ((byte & 0x1F) << 6) | (data[i + 1] & 0x3F);
+          const code = ((byte & 0x1f) << 6) | ((data[i + 1] ?? 0) & 0x3f);
           buffer += String.fromCodePoint(code);
           i += 2;
         } else {
           i++;
         }
-      } else if (byte < 0xF0) {
+      } else if (byte < 0xf0) {
         // 3-byte UTF-8
         if (i + 2 < data.length) {
-          const code = ((byte & 0x0F) << 12) | ((data[i + 1] & 0x3F) << 6) | (data[i + 2] & 0x3F);
+          const code =
+            ((byte & 0x0f) << 12) |
+            (((data[i + 1] ?? 0) & 0x3f) << 6) |
+            ((data[i + 2] ?? 0) & 0x3f);
           buffer += String.fromCodePoint(code);
           i += 3;
         } else {
@@ -104,7 +108,11 @@ function main() {
       } else {
         // 4-byte UTF-8
         if (i + 3 < data.length) {
-          const code = ((byte & 0x07) << 18) | ((data[i + 1] & 0x3F) << 12) | ((data[i + 2] & 0x3F) << 6) | (data[i + 3] & 0x3F);
+          const code =
+            ((byte & 0x07) << 18) |
+            (((data[i + 1] ?? 0) & 0x3f) << 12) |
+            (((data[i + 2] ?? 0) & 0x3f) << 6) |
+            ((data[i + 3] ?? 0) & 0x3f);
           buffer += String.fromCodePoint(code);
           i += 4;
         } else {

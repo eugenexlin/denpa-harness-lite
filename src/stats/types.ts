@@ -1,5 +1,3 @@
-import type { DailyStats } from "./db";
-
 export interface DailyStats {
   id: number;
   date: string;

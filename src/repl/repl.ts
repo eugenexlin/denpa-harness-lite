@@ -1,5 +1,6 @@
 import { createInputManager, type InputManager } from "../terminal/input";
 import type { APIClient } from "../api/client";
+import type { ModelCacheManager } from "../api/model-cache";
 import type { Session } from "../agent/session";
 import type { SubagentManager } from "../agent/subagent-manager";
 import type {
@@ -37,6 +38,7 @@ export const createRepl = (
   toolRegistry: ToolRegistry,
   statsDB: StatsDB,
   config: ResolvedConfig,
+  modelCache: ModelCacheManager,
 ): Repl => {
   let userInput: string = "";
   let userInputWithAnsiCursor: string = "";
@@ -74,10 +76,12 @@ export const createRepl = (
   };
 
   const rerenderPanel = (): void => {
+    const modelInfo = modelCache.getModelInfo(client.getModel());
     const panelLines = renderPanel({
       mode: panelMode,
       isStreaming,
       llmModel: client.getModel(),
+      llmModelId: modelInfo?.id ?? undefined,
       isReadonlyMode,
       isThinking,
       startTime: 0,

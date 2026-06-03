@@ -13,6 +13,7 @@ export type PanelMode = "input" | "tool-approval";
 export interface PanelProps {
   mode: PanelMode;
   llmModel: string;
+  llmModelId?: string;
   isReadonlyMode: boolean;
   isThinking: boolean;
   isStreaming: boolean;
@@ -128,6 +129,9 @@ export const renderPanel = (props: PanelProps): PanelLine[] => {
     : wrapFgRgb(ANSI.color_ref.read_write, "Write");
   footer += ` ${CHARS.separator} `;
   footer += props.llmModel;
+  if (props.llmModelId) {
+    footer += ` ${ANSI.dim}${props.llmModelId}${ANSI.disable.dim}`;
+  }
 
   result.push(...formatUserInputPanel(props.userInputWithAnsiCursor, [footer]));
   //

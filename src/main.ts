@@ -156,6 +156,7 @@ const main = async (): Promise<void> => {
       toolRegistry,
       statsDB,
       config,
+      modelCache,
     );
     repl.run().finally(() => {
       repl.stop();
