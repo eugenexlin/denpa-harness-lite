@@ -210,6 +210,7 @@ export const createRepl = (
     });
 
     slashCommands.set("clear", async () => {
+      inputManager.clearHistory();
       session.clear();
       isReadonlyMode = true;
       lastSentMode = null;
@@ -309,6 +310,7 @@ export const createRepl = (
   };
 
   const handleSendToLlm = async (input: string): Promise<void> => {
+    inputManager.pushHistory(input);
     session.addMessage("user", input);
     isStreaming = true;
     currentAbort = new AbortController();
@@ -338,13 +340,11 @@ export const createRepl = (
         },
         onThinkingEnd: (durationMs: number) => {
           isThinking = false;
-          const seconds = Math.max(1, Math.ceil(durationMs / 1000));
-          const formatTime = seconds + "s";
           if (config?.showThinking) {
             outputBuffer.scroll("\n");
           }
           outputBuffer.scroll(
-            wrapFgRgb(ANSI.color_ref.thinking, `Thought for ${formatTime}\n\n`),
+            wrapFgRgb(ANSI.color_ref.thinking, `Thought for ${formatDuration(durationMs)}\n\n`),
           );
         },
         onToolCall: (name: string, args: Record<string, unknown>) => {

@@ -1,4 +1,5 @@
 import { ANSI } from "./ansi";
+import { wrapText } from "./wrap";
 
 export interface InputManagerProps {
   onUserInputUpdate: (input: string, render: string) => void;
@@ -17,6 +18,8 @@ export interface InputManager {
   getCursor: () => number;
   setCursor: (pos: number) => void;
   clearExitTimeout: () => void;
+  pushHistory: (text: string) => void;
+  clearHistory: () => void;
 }
 
 const segmenter = new Intl.Segmenter();
@@ -57,6 +60,148 @@ export const createInputManager = (props: InputManagerProps): InputManager => {
   let isCursorBlinkVisible = true;
 
   let exitTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  let history: string[] = [];
+  let historyIndex = -1;
+  let draftBuffer: string | null = null;
+  let draftCursor = 0;
+
+  const getWrapWidth = (): number => {
+    const cols = process.stdout.columns || 80;
+    return Math.max(1, cols - 4);
+  };
+
+  const computeVisualLayout = () => {
+    const wrapWidth = getWrapWidth();
+    const lines = buffer.split("\n");
+    const visualLines: Array<{ text: string; graphemeCount: number; lineOffset: number }> = [];
+    let cumulativeGraphemes = 0;
+
+    for (const line of lines) {
+      const wrapped = wrapText(line, 1, wrapWidth);
+      for (const wLine of wrapped.textLines) {
+        const gCount = countGraphemes(wLine);
+        visualLines.push({
+          text: wLine,
+          graphemeCount: gCount,
+          lineOffset: cumulativeGraphemes,
+        });
+        cumulativeGraphemes += gCount;
+      }
+      cumulativeGraphemes++;
+    }
+
+    return { visualLines, wrapWidth };
+  };
+
+  const getVisualPosition = () => {
+    const { visualLines } = computeVisualLayout();
+    if (visualLines.length === 0) return { visualLine: 0, visualCol: 0 };
+
+    for (let i = 0; i < visualLines.length; i++) {
+      const vl = visualLines[i];
+      if (vl && cursor >= vl.lineOffset && cursor <= vl.lineOffset + vl.graphemeCount) {
+        return { visualLine: i, visualCol: cursor - vl.lineOffset };
+      }
+    }
+
+    const last = visualLines[visualLines.length - 1];
+    if (!last) return { visualLine: 0, visualCol: 0 };
+    return {
+      visualLine: visualLines.length - 1,
+      visualCol: Math.min(cursor - last.lineOffset, last.graphemeCount),
+    };
+  };
+
+  const setCursorFromVisual = (targetVisualLine: number, targetVisualCol: number) => {
+    const { visualLines } = computeVisualLayout();
+    if (targetVisualLine < 0 || targetVisualLine >= visualLines.length) return;
+    const vl = visualLines[targetVisualLine];
+    if (!vl) return;
+    const clampedCol = Math.max(0, Math.min(targetVisualCol, vl.graphemeCount));
+    cursor = vl.lineOffset + clampedCol;
+  };
+
+  const moveCursorUpLine = (): boolean => {
+    const { visualLines } = computeVisualLayout();
+    if (visualLines.length <= 1) return false;
+
+    const pos = getVisualPosition();
+
+    if (pos.visualLine === 0) return false;
+
+    const targetLine = pos.visualLine - 1;
+    const vl = visualLines[targetLine];
+    if (!vl) return false;
+    const clampedCol = Math.min(pos.visualCol, vl.graphemeCount);
+    setCursorFromVisual(targetLine, clampedCol);
+    handleUpdateUserInput();
+    return true;
+  };
+
+  const moveCursorDownLine = (): boolean => {
+    const { visualLines } = computeVisualLayout();
+    if (visualLines.length <= 1) return false;
+
+    const pos = getVisualPosition();
+
+    if (pos.visualLine >= visualLines.length - 1) return false;
+
+    const targetLine = pos.visualLine + 1;
+    const vl = visualLines[targetLine];
+    if (!vl) return false;
+    const clampedCol = Math.min(pos.visualCol, vl.graphemeCount);
+    setCursorFromVisual(targetLine, clampedCol);
+    handleUpdateUserInput();
+    return true;
+  };
+
+  const navigateHistoryUp = (): void => {
+    if (history.length === 0) return;
+
+    if (historyIndex === -1) {
+      draftBuffer = buffer;
+      draftCursor = cursor;
+    }
+
+    if (historyIndex === -1) {
+      historyIndex = history.length - 1;
+    } else if (historyIndex > 0) {
+      historyIndex--;
+    }
+
+    const entry = history[historyIndex];
+    if (!entry) return;
+    buffer = entry;
+    cursor = countGraphemes(buffer);
+    handleUpdateUserInput();
+  };
+
+  const navigateHistoryDown = (): void => {
+    if (historyIndex === -1) return;
+
+    if (historyIndex >= history.length - 1) {
+      buffer = draftBuffer ?? "";
+      cursor = draftCursor;
+      historyIndex = -1;
+      draftBuffer = null;
+      draftCursor = 0;
+      handleUpdateUserInput();
+    } else {
+      historyIndex++;
+      const entry = history[historyIndex];
+      if (!entry) return;
+      buffer = entry;
+      cursor = countGraphemes(buffer);
+      handleUpdateUserInput();
+    }
+  };
+
+  const resetHistoryNav = (): void => {
+    historyIndex = -1;
+    draftBuffer = null;
+    draftCursor = 0;
+  };
 
   const wipeBuffer = () => {
     buffer = "";
@@ -171,15 +316,17 @@ export const createInputManager = (props: InputManagerProps): InputManager => {
     escapeSequence += char;
 
     if (escapeSequence === "\x1b[A") {
-      moveCursorLeft();
-      handleUpdateUserInput();
+      if (!moveCursorUpLine()) {
+        navigateHistoryUp();
+      }
       escapeSequence = "";
       return;
     }
 
     if (escapeSequence === "\x1b[B") {
-      moveCursorRight();
-      handleUpdateUserInput();
+      if (!moveCursorDownLine()) {
+        navigateHistoryDown();
+      }
       escapeSequence = "";
       return;
     }
@@ -258,6 +405,15 @@ export const createInputManager = (props: InputManagerProps): InputManager => {
       return;
     }
 
+    if (escapeSequence === "\x1b[20~") {
+      clearExitTimeout();
+      resetHistoryNav();
+      insertChar("\n");
+      handleUpdateUserInput();
+      escapeSequence = "";
+      return;
+    }
+
     if (escapeSequence.match(/^\x1b\[1[0-2]~$/)) {
       escapeSequence = "";
       return;
@@ -314,12 +470,13 @@ export const createInputManager = (props: InputManagerProps): InputManager => {
           handleUpdateUserInput();
           return;
         }
+        resetHistoryNav();
         deleteCharForward();
         handleUpdateUserInput();
         continue;
       }
 
-      if (char === "\r" || char === "\n") {
+      if (char === "\r") {
         clearExitTimeout();
         onSubmit(buffer);
         onUserInputUpdate("", "");
@@ -327,9 +484,18 @@ export const createInputManager = (props: InputManagerProps): InputManager => {
         return;
       }
 
+      if (char === "\n") {
+        clearExitTimeout();
+        resetHistoryNav();
+        insertChar("\n");
+        handleUpdateUserInput();
+        continue;
+      }
+
       if (char === "\x08") {
         // Ctrl+Backspace: delete word before cursor
         clearExitTimeout();
+        resetHistoryNav();
         deleteWord();
         handleUpdateUserInput();
         continue;
@@ -337,6 +503,7 @@ export const createInputManager = (props: InputManagerProps): InputManager => {
 
       if (char === "\x7f") {
         // Regular Backspace: delete char before cursor
+        resetHistoryNav();
         deleteBeforeCursor();
         handleUpdateUserInput();
         continue;
@@ -347,6 +514,7 @@ export const createInputManager = (props: InputManagerProps): InputManager => {
         // typically deletes everything from the current cursor position back to the beginning of the line (kill line).
         // TODO
         clearExitTimeout();
+        resetHistoryNav();
         wipeBuffer();
         handleUpdateUserInput();
         continue;
@@ -356,6 +524,7 @@ export const createInputManager = (props: InputManagerProps): InputManager => {
         //  || char === "\x1f"
         // ctrl + w ||
         clearExitTimeout();
+        resetHistoryNav();
         deleteWord();
         handleUpdateUserInput();
         continue;
@@ -395,6 +564,7 @@ export const createInputManager = (props: InputManagerProps): InputManager => {
 
       if (char[0] != null && char[0] >= " ") {
         clearExitTimeout();
+        resetHistoryNav();
         insertChar(char);
         handleUpdateUserInput();
       }
@@ -449,5 +619,20 @@ export const createInputManager = (props: InputManagerProps): InputManager => {
     },
 
     clearExitTimeout: (): void => clearExitTimeout(),
+
+    pushHistory: (text: string): void => {
+      if (!text.trim()) return;
+      history.push(text);
+      historyIndex = -1;
+      draftBuffer = null;
+      draftCursor = 0;
+    },
+
+    clearHistory: (): void => {
+      history = [];
+      historyIndex = -1;
+      draftBuffer = null;
+      draftCursor = 0;
+    },
   };
 };

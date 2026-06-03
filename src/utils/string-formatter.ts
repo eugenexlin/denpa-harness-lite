@@ -1,8 +1,12 @@
 export const formatDuration = (ms: number): string => {
-  const seconds = Math.floor(ms / 1000);
-  const minutes = Math.floor(seconds / 60);
-  if (minutes > 0) {
-    return `${minutes}:${String(seconds % 60).padStart(2, "0")}`;
-  }
-  return `${seconds}s`;
+  const totalSeconds = Math.max(1, Math.floor(ms / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  const parts: string[] = [];
+  if (hours > 0) parts.push(`${hours}h`);
+  if (minutes > 0) parts.push(`${minutes}m`);
+  parts.push(`${seconds}s`);
+  return parts.join("");
 };
