@@ -10,6 +10,7 @@ export interface ToolLoopCallbacks {
   onThinkingEnd?: (durationMs: number) => void;
   onToolCall?: (name: string, args: Record<string, unknown>) => void;
   onToolResult?: (name: string, result: ToolResult) => void;
+  onUsage?: (tokensIn: number, tokensOut: number) => void;
 }
 
 export const executeToolLoop = async (
@@ -20,7 +21,7 @@ export const executeToolLoop = async (
   callbacks: ToolLoopCallbacks,
   signal?: AbortSignal,
 ): Promise<string> => {
-  const { onToken, onThinking, onThinkingEnd, onToolCall, onToolResult } = callbacks;
+  const { onToken, onThinking, onThinkingEnd, onToolCall, onToolResult, onUsage } = callbacks;
   let fullContent = "";
 
   while (true) {
@@ -40,6 +41,7 @@ export const executeToolLoop = async (
       signal,
       onThinking,
       onThinkingEnd,
+      onUsage,
     );
 
     fullContent += iterationContent;

@@ -1,4 +1,3 @@
-import { logFile } from "../utils/debug-logger";
 import { ANSI, wrapFgRgb } from "../terminal/ansi";
 import { wrapText } from "../terminal/wrap";
 
@@ -6,7 +5,6 @@ import { wrapText } from "../terminal/wrap";
 const THOUGHT_PREFIX = wrapFgRgb(ANSI.color_ref.thinking, "┃");
 
 export const formatThinking = (text: string, colPos: number): string => {
-  // logFile("think", text);
   const cols = process.stdout.columns || 80;
   const wrap = cols - 4;
 

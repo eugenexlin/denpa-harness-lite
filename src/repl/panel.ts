@@ -3,6 +3,10 @@ import { wrapText } from "../terminal/wrap";
 import { getSandKeyFrame } from "./drop-animation";
 import type { InternalToolDefinition } from "../agent/tool/internal";
 import { CHARS } from "../terminal/special-chars";
+import {
+  formatDuration,
+  formatRequestMetricLine,
+} from "../utils/string-formatter";
 
 export type PanelToken = { type: "full-width-rule" };
 export type PanelLine = string | PanelToken;
@@ -22,6 +26,10 @@ export interface PanelProps {
   toolName?: string;
   toolDefinition?: InternalToolDefinition;
   toolArgs?: Record<string, unknown>;
+  requestStartTime: number;
+  tokensIn: number;
+  tokensOut: number;
+  tokensOutNextStreamEstimate: number;
 }
 
 export const formatUserInputPanel = (
@@ -133,8 +141,25 @@ export const renderPanel = (props: PanelProps): PanelLine[] => {
     footer += ` ${ANSI.dim}${props.llmModelId}${ANSI.disable.dim}`;
   }
 
-  result.push(...formatUserInputPanel(props.userInputWithAnsiCursor, [footer]));
+  const footerLines: string[] = [footer];
+
+  result.push(
+    ...formatUserInputPanel(props.userInputWithAnsiCursor, footerLines),
+  );
   //
+
+  if (props.isStreaming && props.requestStartTime > 0) {
+    const elapsedTimespan = Date.now() - props.requestStartTime;
+    const estimatedOut =
+      props.tokensOut + Math.floor(props.tokensOutNextStreamEstimate / 5);
+    const metricLine = formatRequestMetricLine(
+      elapsedTimespan,
+      props.tokensIn,
+      estimatedOut,
+    );
+    let fullMetricLine = `${wrapFgRgb(ANSI.color.gray500, `${metricLine} ${CHARS.separator} Esc to Interrupt`)}`;
+    result.push(fullMetricLine);
+  }
 
   return result;
 };

@@ -24,7 +24,10 @@ import {
   type PanelMode,
 } from "./panel";
 import { CHARS } from "../terminal/special-chars";
-import { formatDuration } from "../utils/string-formatter";
+import {
+  formatDuration,
+  formatRequestMetricLine,
+} from "../utils/string-formatter";
 
 export interface Repl {
   run: () => Promise<void>;
@@ -45,6 +48,10 @@ export const createRepl = (
   let isThinking = false;
   let isStreaming = false;
   let isReadonlyMode = true;
+  let requestStartTime = 0;
+  let tokensInConfirmedByApi = 0;
+  let tokensOutConfirmedByApi = 0;
+  let streamingCharsOut = 0;
   let lastSentMode: "read" | "write" | null = null;
   let agentRunning = false;
   let panelMode: PanelMode = "input";
@@ -89,6 +96,10 @@ export const createRepl = (
       toolName: pendingToolName ?? undefined,
       toolDefinition: pendingToolDef ?? undefined,
       toolArgs: pendingToolArgs ?? undefined,
+      requestStartTime,
+      tokensIn: tokensInConfirmedByApi,
+      tokensOut: tokensOutConfirmedByApi,
+      tokensOutNextStreamEstimate: streamingCharsOut,
     });
     if (panelMode === "input" && userInput.startsWith("/")) {
       panelLines.push(...renderSlashMenu());
@@ -319,14 +330,23 @@ export const createRepl = (
     isStreaming = true;
     currentAbort = new AbortController();
 
-    const startTime = Date.now();
-    let tokensIn = 0;
-    let tokensOut = 0;
+    requestStartTime = Date.now();
+    tokensInConfirmedByApi = 0;
+    tokensOutConfirmedByApi = 0;
+    streamingCharsOut = 0;
 
     try {
       const callbacks: ToolLoopCallbacks = {
         onToken: (token: string) => {
           outputBuffer.scroll(token);
+          streamingCharsOut += token.length;
+          rerenderPanel();
+        },
+        onUsage: (tokensIn: number, tokensOut: number) => {
+          tokensInConfirmedByApi += tokensIn;
+          tokensOutConfirmedByApi += tokensOut;
+          streamingCharsOut = 0;
+          rerenderPanel();
         },
         onThinking: (chunk: string) => {
           if (!isThinking) {
@@ -348,7 +368,10 @@ export const createRepl = (
             outputBuffer.scroll("\n");
           }
           outputBuffer.scroll(
-            wrapFgRgb(ANSI.color_ref.thinking, `Thought for ${formatDuration(durationMs)}\n\n`),
+            wrapFgRgb(
+              ANSI.color_ref.thinking,
+              `Thought for ${formatDuration(durationMs)}\n\n`,
+            ),
           );
         },
         onToolCall: (name: string, args: Record<string, unknown>) => {
@@ -384,16 +407,8 @@ export const createRepl = (
 
       outputBuffer.scroll("\n");
 
-      const duration = Date.now() - startTime;
-      tokensIn = session
-        .getMessages()
-        .reduce((sum, m) => sum + m.content.length, 0);
-      tokensOut = fullResponse.length;
-      statsDB.recordRequest(
-        duration,
-        Math.ceil(tokensIn / 4),
-        Math.ceil(tokensOut / 4),
-      );
+      const duration = Date.now() - requestStartTime;
+      statsDB.recordRequest(duration, tokensInConfirmedByApi, tokensOutConfirmedByApi);
 
       session.addMessage("assistant", fullResponse);
     } catch (err) {
@@ -411,14 +426,13 @@ export const createRepl = (
       currentAbort = null;
     }
 
-    const duration = Date.now() - startTime;
-    let infoBuffer = `\n${formatDuration(duration)}`;
-    if (tokensIn > 0) {
-      infoBuffer += ` ${CHARS.separator} in:${tokensIn}`;
-    }
-    if (tokensOut > 0) {
-      infoBuffer += ` ${CHARS.separator} out:${tokensOut}`;
-    }
+    const duration = Date.now() - requestStartTime;
+    let infoBuffer = "\n";
+    infoBuffer += formatRequestMetricLine(
+      duration,
+      tokensInConfirmedByApi,
+      tokensOutConfirmedByApi,
+    );
     infoBuffer += "\n";
     outputBuffer.scroll(wrapFgRgb(ANSI.color.gray500, infoBuffer));
   };

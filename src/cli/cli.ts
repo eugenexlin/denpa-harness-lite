@@ -3,7 +3,6 @@ import type { Session } from "../agent/session";
 import type { StatsDB } from "../stats/db";
 import type { ToolRegistry } from "../agent/tool/registry";
 import type { InternalToolDefinition } from "../agent/tool/internal";
-import { logFile } from "../utils/debug-logger";
 import { executeToolLoop } from "../agent/tool-loop";
 import type { OutputVisibilityConfig } from "../config/types";
 import { ANSI, bold, wrapFgRgb } from "../terminal/ansi";
@@ -54,7 +53,6 @@ export const runCLI = async (
   session.addMessage("user", message);
 
   try {
-    logFile(session.getHistory());
     const fullResponse = await executeToolLoop(
       client,
       session,

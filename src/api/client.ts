@@ -13,12 +13,17 @@ export interface APIClient {
     signal?: AbortSignal,
     onThinking?: (chunk: string) => void,
     onThinkingEnd?: (durationMs: number) => void,
+    onUsage?: (tokensIn: number, tokensOut: number) => void,
   ) => Promise<APIStats & { toolCalls?: InternalToolCall[] }>;
   chatComplete: (
     messages: Message[],
     tools?: InternalToolDefinition[],
     signal?: AbortSignal,
-  ) => Promise<{ content: string; toolCalls?: InternalToolCall[]; stats: APIStats }>;
+  ) => Promise<{
+    content: string;
+    toolCalls?: InternalToolCall[];
+    stats: APIStats;
+  }>;
 }
 
 export interface APIClientOptions {
@@ -45,6 +50,12 @@ export const createAPIClient = (
       messages: formatter.formatMessages(messages),
       stream,
     };
+    if (stream) {
+      payload.stream_options = {
+        ...(payload.stream_options ?? {}),
+        include_usage: true,
+      };
+    }
     if (tools?.length) {
       payload.tools = formatter.formatTools(tools);
     }
@@ -54,7 +65,8 @@ export const createAPIClient = (
   type StreamEvent =
     | { type: "thinking"; text: string }
     | { type: "content"; text: string }
-    | { type: "tool_call"; toolCall: InternalToolCall };
+    | { type: "tool_call"; toolCall: InternalToolCall }
+    | { type: "usage"; tokensIn: number; tokensOut: number };
 
   const parseStream = async function* (
     response: Response,
@@ -65,7 +77,10 @@ export const createAPIClient = (
     const decoder = new TextDecoder();
     let buffer = "";
 
-    const pendingToolCalls = new Map<number, { id?: string; name?: string; argsBuffer: string }>();
+    const pendingToolCalls = new Map<
+      number,
+      { id?: string; name?: string; argsBuffer: string }
+    >();
 
     try {
       while (true) {
@@ -84,7 +99,23 @@ export const createAPIClient = (
           if (data === "[DONE]") {
             for (const tc of pendingToolCalls.values()) {
               if (tc.id && tc.name) {
-                yield { type: "tool_call", toolCall: { id: tc.id, name: tc.name, arguments: (() => { try { return JSON.parse(tc.argsBuffer) as Record<string, unknown>; } catch { return {}; } })() } };
+                yield {
+                  type: "tool_call",
+                  toolCall: {
+                    id: tc.id,
+                    name: tc.name,
+                    arguments: (() => {
+                      try {
+                        return JSON.parse(tc.argsBuffer) as Record<
+                          string,
+                          unknown
+                        >;
+                      } catch {
+                        return {};
+                      }
+                    })(),
+                  },
+                };
               }
             }
             pendingToolCalls.clear();
@@ -93,16 +124,29 @@ export const createAPIClient = (
 
           try {
             const chunk = JSON.parse(data) as import("./types").StreamChunk;
+            if (chunk.usage) {
+              yield {
+                type: "usage",
+                tokensIn: chunk.usage.prompt_tokens ?? 0,
+                tokensOut: chunk.usage.completion_tokens ?? 0,
+              };
+            }
             const delta = chunk.choices?.[0]?.delta;
-            if (delta?.reasoning_content) yield { type: "thinking", text: delta.reasoning_content };
+            if (delta?.reasoning_content)
+              yield { type: "thinking", text: delta.reasoning_content };
             if (delta?.content) yield { type: "content", text: delta.content };
             if (delta?.tool_calls) {
               for (const tc of delta.tool_calls) {
                 const idx = tc.index;
-                const existing = pendingToolCalls.get(idx) ?? { id: undefined, name: undefined, argsBuffer: "" };
+                const existing = pendingToolCalls.get(idx) ?? {
+                  id: undefined,
+                  name: undefined,
+                  argsBuffer: "",
+                };
                 if (tc.id) existing.id = tc.id;
                 if (tc.function?.name) existing.name = tc.function.name;
-                if (tc.function?.arguments) existing.argsBuffer += tc.function.arguments;
+                if (tc.function?.arguments)
+                  existing.argsBuffer += tc.function.arguments;
                 pendingToolCalls.set(idx, existing);
               }
             }
@@ -115,9 +159,6 @@ export const createAPIClient = (
       reader.releaseLock();
     }
   };
-
-  const estimateTokens = (text: string): number =>
-    Math.max(1, Math.ceil(text.length / 4));
 
   return {
     getModel: (): string => currentModel,
@@ -133,12 +174,15 @@ export const createAPIClient = (
       signal?: AbortSignal,
       onThinking?: (chunk: string) => void,
       onThinkingEnd?: (durationMs: number) => void,
+      onUsage?: (tokensIn: number, tokensOut: number) => void,
     ): Promise<APIStats & { toolCalls?: InternalToolCall[] }> => {
       const startTime = Date.now();
       let fullContent = "";
       let isThinking = false;
       let thinkingStart = 0;
       const collectedToolCalls: InternalToolCall[] = [];
+      let actualTokensIn = 0;
+      let actualTokensOut = 0;
 
       const processEvent = (event: StreamEvent) => {
         if (event.type === "thinking") {
@@ -150,6 +194,10 @@ export const createAPIClient = (
           onThinking?.(event.text);
         } else if (event.type === "tool_call") {
           collectedToolCalls.push(event.toolCall);
+        } else if (event.type === "usage") {
+          actualTokensIn = event.tokensIn;
+          actualTokensOut = event.tokensOut;
+          onUsage?.(event.tokensIn, event.tokensOut);
         } else {
           // content
           if (isThinking) {
@@ -191,10 +239,8 @@ export const createAPIClient = (
         onThinkingEnd?.(duration);
       }
 
-      const tokensIn = estimateTokens(
-        messages.map((m) => m.content).join("\n"),
-      );
-      const tokensOut = estimateTokens(fullContent);
+      const tokensIn = actualTokensIn;
+      const tokensOut = actualTokensOut;
       const durationMs = Date.now() - startTime;
 
       return {
@@ -210,7 +256,11 @@ export const createAPIClient = (
       messages: Message[],
       tools?: InternalToolDefinition[],
       signal?: AbortSignal,
-    ): Promise<{ content: string; toolCalls?: InternalToolCall[]; stats: APIStats }> => {
+    ): Promise<{
+      content: string;
+      toolCalls?: InternalToolCall[];
+      stats: APIStats;
+    }> => {
       const startTime = Date.now();
 
       const payload = buildPayload(messages, tools, false);
@@ -233,10 +283,13 @@ export const createAPIClient = (
         );
       }
 
-      const json = (await response.json()) as import("./types").ChatCompletionResponse;
+      const json =
+        (await response.json()) as import("./types").ChatCompletionResponse;
       const content = json.choices?.[0]?.message?.content ?? "";
       const rawToolCalls = json.choices?.[0]?.message?.tool_calls;
-      const toolCalls = rawToolCalls ? formatter.parseToolCalls(rawToolCalls) : undefined;
+      const toolCalls = rawToolCalls
+        ? formatter.parseToolCalls(rawToolCalls)
+        : undefined;
       const tokensIn = json.usage?.prompt_tokens ?? 0;
       const tokensOut = json.usage?.completion_tokens ?? 0;
       const durationMs = Date.now() - startTime;

@@ -1,4 +1,3 @@
-import { logFile } from "../utils/debug-logger";
 import {
   clearFromCursor,
   ESC,
@@ -140,8 +139,6 @@ export const createOutputBuffer = (): OutputBuffer => {
     if (!initialized) return;
     const scrollBufferFlush = scrollBuffer;
     scrollBuffer = "";
-
-    //logFile(scrollBufferFlush)
 
     const totalRows = process.stdout.rows || 24;
 

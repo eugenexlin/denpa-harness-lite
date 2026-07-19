@@ -119,6 +119,16 @@ const color = {
   gray700: `64;64;64`,
   gray800: `45;45;45`,
   gray900: `33;33;33`,
+
+  blueGray100: "207;216;220",
+  blueGray200: "176;190;197",
+  blueGray300: "144;164;174",
+  blueGray400: "120;144;156",
+  blueGray500: "96;125;139",
+  blueGray600: "84;110;122",
+  blueGray700: "69;90;100",
+  blueGray800: "55;71;79",
+  blueGray900: "38;50;56",
 };
 
 // Colors and styling
@@ -170,11 +180,11 @@ export const ANSI = {
   color: color,
 
   color_ref: {
-    thinking: color.purple600,
+    thinking: color.purple200,
     user_cancelled: color.amber600,
     read_only: color.amber600,
     read_write: color.teal500,
-    tool: color.brown400,
+    tool: color.blueGray500,
   },
 } as const;
 
