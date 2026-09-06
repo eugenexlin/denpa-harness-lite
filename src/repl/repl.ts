@@ -28,10 +28,12 @@ import {
   formatDuration,
   formatRequestMetricLine,
 } from "../utils/string-formatter";
+import { logger, setLogSink } from "../utils/logger";
 
 export interface Repl {
   run: () => Promise<void>;
   stop: () => void;
+  refreshPanel: () => void;
 }
 
 export const createRepl = (
@@ -61,18 +63,30 @@ export const createRepl = (
 
   const outputBuffer = createOutputBuffer();
 
+  setLogSink({
+    write: (level, message) => {
+      const styled =
+        level === "error"
+          ? wrapFgRgb(ANSI.color.red500, message)
+          : level === "warn"
+            ? wrapFgRgb(ANSI.color.amber500, message)
+            : message;
+      outputBuffer.scroll(styled + "\n");
+    },
+  });
+
   let terminateMe: () => void = () => {};
   let currentAbort: AbortController | null = null;
 
   const waitForTermination = () => {
     return new Promise<void>((resolve) => {
       process.on("SIGINT", () => {
-        console.log("\nReceived SIGINT (Ctrl+C). Shutting down...");
+        logger.info("\nReceived SIGINT (Ctrl+C). Shutting down...");
         resolve();
       });
 
       process.on("SIGTERM", () => {
-        console.log("Received SIGTERM. Shutting down...");
+        logger.info("Received SIGTERM. Shutting down...");
         resolve();
       });
 
@@ -473,6 +487,7 @@ export const createRepl = (
 
       await waitForTermination();
 
+      outputBuffer.flushNow();
       process.stdout.write(clearFromCursor());
       inputManager.stop();
       agentManager.abortAll();
@@ -481,6 +496,10 @@ export const createRepl = (
 
     stop: (): void => {
       terminateMe();
+    },
+
+    refreshPanel: (): void => {
+      rerenderPanel();
     },
   };
 };

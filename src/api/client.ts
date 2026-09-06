@@ -2,6 +2,7 @@ import type { Message, InternalToolCall } from "./types";
 import type { InternalToolDefinition } from "../agent/tool/internal";
 import { openAIFormatter } from "../agent/tool/formatter";
 import type { APIStats } from "./types";
+import type { ModelConfig } from "../config/types";
 
 export interface APIClient {
   getModel: () => string;
@@ -30,14 +31,37 @@ export interface APIClientOptions {
   formatter?: typeof openAIFormatter;
 }
 
+interface ResolvedModel {
+  baseUrl: string;
+  apiKey: string;
+  modelId: string;
+  params: Record<string, unknown>;
+}
+
+const resolveModelEntry = (
+  cfg: ModelConfig,
+  alias: string,
+): ResolvedModel => {
+  const params: Record<string, unknown> = {};
+  if (cfg.temperature !== undefined) params.temperature = cfg.temperature;
+  if (cfg.top_p !== undefined) params.top_p = cfg.top_p;
+  if (cfg.max_tokens !== undefined) params.max_tokens = cfg.max_tokens;
+  return {
+    baseUrl: cfg.base_url.replace(/\/+$/, ""),
+    apiKey: cfg.api_key,
+    modelId: cfg.model ?? alias,
+    params,
+  };
+};
+
 export const createAPIClient = (
-  baseUrl: string,
-  apiKey: string,
-  model: string,
+  modelConfig: ModelConfig,
+  alias: string,
+  resolveModel?: (alias: string) => ModelConfig | undefined,
   options: APIClientOptions = {},
 ): APIClient => {
-  const cleanBaseUrl = baseUrl.replace(/\/+$/, "");
-  let currentModel = model;
+  let currentAlias = alias;
+  let current = resolveModelEntry(modelConfig, alias);
   const formatter = options.formatter ?? openAIFormatter;
 
   const buildPayload = (
@@ -46,15 +70,13 @@ export const createAPIClient = (
     stream = false,
   ): Record<string, unknown> => {
     const payload: Record<string, unknown> = {
-      model: currentModel,
+      model: current.modelId,
       messages: formatter.formatMessages(messages),
       stream,
+      ...current.params,
     };
     if (stream) {
-      payload.stream_options = {
-        ...(payload.stream_options ?? {}),
-        include_usage: true,
-      };
+      payload.stream_options = { include_usage: true };
     }
     if (tools?.length) {
       payload.tools = formatter.formatTools(tools);
@@ -161,10 +183,12 @@ export const createAPIClient = (
   };
 
   return {
-    getModel: (): string => currentModel,
+    getModel: (): string => currentAlias,
 
-    updateModel: (model: string): void => {
-      currentModel = model;
+    updateModel: (name: string): void => {
+      currentAlias = name;
+      const cfg = resolveModel?.(name);
+      current = cfg ? resolveModelEntry(cfg, name) : { ...current, modelId: name };
     },
 
     chatStream: async (
@@ -211,13 +235,13 @@ export const createAPIClient = (
       };
 
       const payload = buildPayload(messages, tools, true);
-      const url = `${cleanBaseUrl}/chat/completions`;
+      const url = `${current.baseUrl}/chat/completions`;
 
       const response = await fetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
+          Authorization: `Bearer ${current.apiKey}`,
         },
         body: JSON.stringify(payload),
         signal,
@@ -244,7 +268,7 @@ export const createAPIClient = (
       const durationMs = Date.now() - startTime;
 
       return {
-        model: currentModel,
+        model: currentAlias,
         tokensIn,
         tokensOut,
         durationMs,
@@ -264,13 +288,13 @@ export const createAPIClient = (
       const startTime = Date.now();
 
       const payload = buildPayload(messages, tools, false);
-      const url = `${cleanBaseUrl}/chat/completions`;
+      const url = `${current.baseUrl}/chat/completions`;
 
       const response = await fetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
+          Authorization: `Bearer ${current.apiKey}`,
         },
         body: JSON.stringify(payload),
         signal,
@@ -298,7 +322,7 @@ export const createAPIClient = (
         content,
         toolCalls: toolCalls?.length ? toolCalls : undefined,
         stats: {
-          model: currentModel,
+          model: currentAlias,
           tokensIn,
           tokensOut,
           durationMs,

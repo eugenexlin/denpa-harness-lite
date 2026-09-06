@@ -1,148 +1,92 @@
-# Denpa Harness Config & Permissions Plan
+# Denpa Harness — Model Tiers & Context Plan
 
-## Overview
+## Architecture
 
-The harness operates in two modes:
+Single process. No recursive CLI spawning. Everything (REPL, subagents, future
+workflows) shares the resolved config, one model-cache instance, and per-model
+API clients.
 
-- **Project mode** — Running inside a git repo. Loads `<gitRoot>/.denpa/config.json` and `<gitRoot>/.denpa/permissions.json`.
-- **System mode** — Running outside any git repo. Loads `~/.denpa/config.json` and `~/.denpa/permissions.json`.
+**Model-cache pull** is non-blocking and time-capped:
 
-Config hierarchy: user-level defaults → project-level overrides → CLI flags.
+- **REPL** — `fetchIfNeeded()` runs in the background (3s cap per server,
+  parallel across servers). The panel re-renders when data lands.
+- **CLI** — loads the cache from disk only. No network, no startup delay.
+- **Fresh cache** (< 10 min) → zero network calls in both modes.
 
----
+A dead/unreachable server only logs its own error and never blocks startup or
+affects other servers.
 
-## Config Files
+## Model Config
 
-### `~/.denpa/config.json` (User Config)
+`ModelConfig` (each named entry under `models`):
 
-Always loaded. Contains:
+| Field | Type | Notes |
+|-------|------|-------|
+| `provider` | string | e.g. `openai`, `ollama` |
+| `api_key` | string | |
+| `base_url` | string | |
+| `model` | string? | API model id. Defaults to the config key (alias). Decouples the alias from the underlying LLM. |
+| `temperature` | number? | Sent in the request payload when set. |
+| `top_p` | number? | Same. |
+| `max_tokens` | number? | Same. |
+| `context_window` | number? | Max-context override; wins over server-reported `n_ctx`. |
 
-| Key | Type | Description |
-|-----|------|-------------|
-| `models` | `Record<string, ModelConfig>` | Named model configs (provider, api_key, base_url) |
-| `default_model` | `string` | Default model name |
-| `max_parallel_agents` | `number` | Max concurrent subagents |
-| `agent_block_prompt` | `boolean` | Block prompts for agents |
-| `show_thinking` | `boolean` | Show model reasoning output |
+Two aliases can share one underlying LLM with different params (e.g. `fast` and
+`creative` both → `gpt-4o-mini` at different `temperature`).
 
-### `<project>/.denpa/config.json` (Project Config)
+### Tiers (light / medium / heavy)
 
-Loaded in project mode. All fields optional. Overrides user config:
-
-| Key | Type | Description |
-|-----|------|-------------|
-| `default_model` | `string?` | Override default model |
-| `max_parallel_agents` | `number?` | Override max agents |
-| `agent_block_prompt` | `boolean?` | Override agent blocking |
-| `show_thinking` | `boolean?` | Override thinking display |
-
-**Models merge**: User and project `models` are merged by name (shallow at key level). Project wins on same name.
-
-### `<project>/.denpa/permissions.json` (Project Permissions)
-
-Loaded in project mode. Does NOT inherit from user permissions.
-
-| Key | Type | Description |
-|-----|------|-------------|
-| `sandbox_paths` | `string[]` | Allowed filesystem paths for tools |
-| `tools` | `Record<string, ToolPermission>` | Tool approval state |
-
-### `~/.denpa/permissions.json` (System Permissions)
-
-Loaded in system mode. Same structure as project permissions.
-
----
-
-## Tool Approval
-
-Each tool must be approved before use. State stored in `permissions.json` under `tools`:
+A fixed 3-role enum for agentic mode, mapping a tier to a model alias:
 
 ```json
-{
-  "tools": {
-    "read_file": { "state": "approved", "file_mtime": 1748123456789 },
-    "write_file": { "state": "denied" }
-  }
-}
+"agent_tiers": { "light": "fast", "medium": "sonnet", "heavy": "opus" }
 ```
 
-States:
-- **Not present** → pending. Prompt in REPL, deny in unattended mode.
-- **approved** → check `file_mtime` against current. Mismatch = pending (file changed).
-- **denied** → deny silently. Never prompt again.
+- Lives in user + project config; project overrides user per-tier.
+- Exposed on `ResolvedConfig.agentTiers`; unknown model refs warn at startup.
+- A tier resolves to: alias → `ModelConfig` (params) + `modelCache[alias].meta.n_ctx`.
 
-### REPL Approval Flow
+### Context-window resolution
 
-When a pending tool is invoked:
-```
-⚠ Tool 'write_file' requires approval:
-  Write content to a file. Creates the file if it doesn't exist.
-  Params: path (string), content (string)
-Approve? [y/N]
-```
+`modelCache.getContextWindow(alias)` returns, in order:
 
-### Unattended Mode
+1. `ModelConfig.context_window` (if set), else
+2. cached `n_ctx` (looked up by the explicit `model` id), else
+3. `null` (no cap).
 
-Denied/pending tools return an error to the LLM. Denied tools are logged for post-execution summary.
+`n_ctx` is a stable property, so a stale cache entry is still valid for this.
 
----
+## Layers
 
-## Sensitive Paths
+### Layer 1 — Foundation (in place)
 
-Warning layer. Paths that trigger a warning when accessed by tools (not a hard block):
+- Non-blocking, 3s-capped model-cache pull; `cancelPending()` / `setOnUpdate()`.
+- `ModelConfig` params + `model` id; client is a factory over `ModelConfig`
+  (`createAPIClient(modelConfig, alias, resolveModel?, opts)`) that emits the
+  model id + set params. `/model` switching now resolves the full config.
+- `agent_tiers` config + merge + startup validation.
+- `getContextWindow()` resolver; `getModelInfo()` looks up by model id.
+- REPL panel refreshes when the background pull completes.
 
-- `~/.ssh/`, `~/.aws/`, `~/.gnupg/`
-- `~/.config/` / `%APPDATA%`
-- `.env` files (any path ending in `.env`)
-- OS system dirs: `/etc/`, `C:\Windows\System32\`
-- `.denpa/` folders (prevent LLM from modifying permissions)
+### Layer 2 — Context monitoring (next)
 
-Harness code has free access. Only tool execution triggers warnings.
+- Track current-context token usage against `getContextWindow()`.
+- Decide when to consolidate/summarize vs. close the session.
+- Needs a real current-context token estimate (today it's a crude `char/4`).
 
----
+### Layer 3 — Workflows (later)
 
-## Custom Tools (Future)
+- Composable TypeScript workflows mixing deterministic steps and tiered LLM steps.
+- Primitives: `agent(tier, prompt, opts)` (full subagent) and
+  `llm(tier, messages, opts)` (single completion).
+- Builds on the existing in-process subagent + custom-tool machinery.
+- Tier = efficiency knob; sequencing/parallelism = throughput knob.
 
-Custom tools will live in `.denpa/tools/` folders. Each tool is a directory with a manifest and handler files. File mtime changes trigger re-approval.
+## Open / To Refine
 
-**To be refined:**
-- Manifest format (`tool.json`)
-- Handler execution model (Node.js, shell scripts, etc.)
-- User-level vs project-level custom tools
-- Tool discovery and registration
-
----
-
-## Implementation Phases
-
-### Phase 1: Config Hierarchy ✅ (Complete)
-- [x] `src/config/types.ts` — Restructure types (UserConfig, ProjectConfig, PermissionsConfig, ResolvedConfig)
-- [x] `src/config/manager.ts` — Git root detection, mode detection, deep merge, permissions loading
-- [x] `src/main.ts` — Mode indicator at startup
-- [x] `docs/config.md` — Documentation
-
-### Phase 2: Permissions & Tool Approval ✅ (Complete)
-- [x] `src/config/sensitive-paths.ts` — Sensitive path detection
-- [x] `src/agent/tool/filesystem.ts` — Sensitive path warnings
-- [x] `src/agent/tool/registry.ts` — Tool approval enforcement
-- [x] `src/repl/repl.ts` — Approval prompt in REPL
-- [x] Unattended mode denial logging
-
-### Phase 3: Custom Tools ✅ (Complete)
-- [x] `.denpa/tools/` folder structure
-- [x] Tool manifest format (`tool.json`)
-- [x] Handler execution model (dynamic import of .ts/.js)
-- [x] Tool discovery and registration
-- [x] Mtime tracking for re-approval on file changes
-
----
-
-## Open Questions / To Refine
-
-1. **Tool-to-file mapping**: How to track mtime for built-in tools vs custom tools
-2. **Custom tools manifest**: Schema for `tool.json`
-3. **Custom tools execution**: Sandboxing, language support, IPC model
-4. **Denied tool reporting**: Format of post-execution summary in unattended mode
-5. **`max_parallel_agents` and `agent_block_prompt`**: Not yet consumed by downstream code
-6. **Config validation**: Schema validation on load
-7. **Hot-reload**: Config changes not picked up until restart
+- **Layer 2** — consolidation threshold policy (% of window vs. hard token cap).
+- **Layer 2** — accurate current-context token accounting (replace `char/4`).
+- **Layer 3** — workflow discovery/registration (e.g. `.denpa/workflows/`),
+  error handling, and passing results between steps.
+- **Per-subagent model** — subagents currently reuse the parent client;
+  tier-aware spawning lands with Layer 3.

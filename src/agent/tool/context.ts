@@ -1,5 +1,6 @@
 import { resolve, isAbsolute } from "node:path";
 import { isSensitivePath as checkSensitive, getSensitivePathReason } from "../../config/sensitive-paths";
+import { logger } from "../../utils/logger";
 
 export interface ToolContextOptions {
   sandboxPaths?: string[];
@@ -39,7 +40,7 @@ export const createToolContext = (options: ToolContextOptions = {}): ToolContext
   const warnSensitive = (resolvedPath: string): void => {
     if (checkSensitive(resolvedPath)) {
       const reason = getSensitivePathReason(resolvedPath) ?? "sensitive path";
-      process.stderr.write(`⚠ Accessing sensitive path: ${resolvedPath} (${reason})\n`);
+      logger.warn(`⚠ Accessing sensitive path: ${resolvedPath} (${reason})`);
     }
   };
 

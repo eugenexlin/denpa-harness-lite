@@ -14,6 +14,7 @@ export interface OutputBuffer {
   init: (inputManager: InputManager) => Promise<void>;
   setPanel: (lines: PanelLine[]) => void;
   scroll: (text: string) => void;
+  flushNow: () => void;
   getCursorCol: () => number;
 }
 
@@ -235,7 +236,12 @@ export const createOutputBuffer = (): OutputBuffer => {
     scheduleFlush();
   };
 
+  const flushNow = (): void => {
+    flushScheduled = false;
+    flush();
+  };
+
   const getCursorCol = (): number => cursorCol;
 
-  return { init, setPanel, scroll, getCursorCol };
+  return { init, setPanel, scroll, flushNow, getCursorCol };
 };

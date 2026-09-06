@@ -7,8 +7,10 @@ import type {
   ResolvedConfig,
   ModelConfig,
   HarnessMode,
+  AgentTiers,
 } from "./types";
 import { DEFAULTS, DEFAULT_PERMISSIONS } from "./types";
+import { logger } from "../utils/logger";
 
 export const getHomeDir = (): string =>
   process.env.HOME || process.env.USERPROFILE || "";
@@ -99,6 +101,7 @@ export const createConfigManager = (cwd: string): ConfigManager => {
       system_prompt_append:
         raw?.system_prompt_append ?? DEFAULTS.system_prompt_append,
       guidelines: raw?.guidelines ?? DEFAULTS.guidelines,
+      agent_tiers: raw?.agent_tiers,
     };
   };
 
@@ -129,6 +132,20 @@ export const createConfigManager = (cwd: string): ConfigManager => {
     return merged;
   };
 
+  const mergeTiers = (
+    user: UserConfig,
+    project: ProjectConfig,
+  ): AgentTiers => {
+    const merged: AgentTiers = { ...user.agent_tiers };
+    const pt = project.agent_tiers;
+    if (pt) {
+      if (pt.light !== undefined) merged.light = pt.light;
+      if (pt.medium !== undefined) merged.medium = pt.medium;
+      if (pt.heavy !== undefined) merged.heavy = pt.heavy;
+    }
+    return merged;
+  };
+
   const getModelFromEnv = (): ModelConfig | null => {
     const key = process.env.OPENAI_API_KEY;
     const url = process.env.OPENAI_BASE_URL;
@@ -152,6 +169,14 @@ export const createConfigManager = (cwd: string): ConfigManager => {
       permissions ??= loadPermissions();
 
       const mergedModels = mergeModels(userConfig, projectConfig);
+      const agentTiers = mergeTiers(userConfig, projectConfig);
+      for (const [tier, alias] of Object.entries(agentTiers)) {
+        if (alias && !mergedModels[alias]) {
+          logger.warn(
+            `[config] agent_tiers.${tier} references unknown model "${alias}"`,
+          );
+        }
+      }
 
       const defaultModelName =
         cliOverrides?.model ??
@@ -181,6 +206,7 @@ export const createConfigManager = (cwd: string): ConfigManager => {
         model,
         models: mergedModels,
         defaultModelName,
+        agentTiers,
         maxParallelAgents:
           projectConfig?.max_parallel_agents ?? userConfig.max_parallel_agents,
         agentBlockPrompt:

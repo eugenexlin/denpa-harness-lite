@@ -12,6 +12,7 @@ import { createRepl } from "./repl/repl";
 import { runCLI } from "./cli/cli";
 import { openAIFormatter } from "./agent/tool/formatter";
 import { ANSI, wrapFgRgb } from "./terminal/ansi";
+import { logger } from "./utils/logger";
 import type { ResolvedConfig } from "./config/types";
 
 const main = async (): Promise<void> => {
@@ -55,18 +56,20 @@ const main = async (): Promise<void> => {
   // Print mode indicator
   const denpaLabel = `${ANSI.fg.cyan}${ANSI.bold}denpa-harness-lite${ANSI.reset}`;
   if (config.mode === "project") {
-    console.log(
+    logger.info(
       `${denpaLabel} [${wrapFgRgb(ANSI.color.gray500, `project: ${config.projectRoot}`)}]`,
     );
   } else {
-    console.log(
+    logger.info(
       `${denpaLabel} [${wrapFgRgb(ANSI.color.gray500, "system mode")}]`,
     );
   }
   // Init model cache
   const cachePath = join(getHomeDir(), ".denpa", "config-cache.json");
-  const modelCache = createModelCache(cachePath);
-  await modelCache.fetchIfNeeded(config.models);
+  const modelCache = createModelCache(cachePath, config.models);
+  if (runMode === "repl") {
+    void modelCache.fetchIfNeeded();
+  }
 
   // Init stats DB
   const statsPath = "~/.denpa/stats.db";
@@ -74,9 +77,9 @@ const main = async (): Promise<void> => {
 
   // Init API client
   const client = createAPIClient(
-    config.model.base_url,
-    config.model.api_key,
+    config.model,
     config.defaultModelName,
+    (alias) => config.models[alias],
     { formatter: openAIFormatter },
   );
 
@@ -141,7 +144,7 @@ const main = async (): Promise<void> => {
     );
     const denied = toolRegistry.getDeniedTools();
     if (denied.length > 0) {
-      console.log(
+      logger.info(
         wrapFgRgb(
           ANSI.color.gray500,
           `\n⚠ Denied tools: ${[...new Set(denied)].join(", ")}`,
@@ -158,6 +161,8 @@ const main = async (): Promise<void> => {
       config,
       modelCache,
     );
+    modelCache.setOnUpdate(() => repl.refreshPanel());
+    repl.refreshPanel();
     repl.run().finally(() => {
       repl.stop();
       statsDB.close();

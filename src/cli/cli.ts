@@ -8,6 +8,7 @@ import type { OutputVisibilityConfig } from "../config/types";
 import { ANSI, bold, wrapFgRgb } from "../terminal/ansi";
 import { CHARS } from "../terminal/special-chars";
 import { formatDuration } from "../utils/string-formatter";
+import { logger } from "../utils/logger";
 
 export interface CLIOptions {
   showThinking?: boolean;
@@ -31,11 +32,11 @@ export const recordStats = (
     Math.ceil(tokensOut / 4),
   );
 
-  console.log("");
-  console.log(
+  logger.info("");
+  logger.info(
     wrapFgRgb(
       ANSI.color.gray500,
-      `\n${bold(client.getModel())} ${CHARS.separator} ${formatDuration(duration)} ${CHARS.separator} in:${Math.ceil(tokensIn / 4)} ${CHARS.separator} out:${Math.ceil(tokensOut / 4)}\n`,
+      `\n${bold(client.getModel())} ${CHARS.separator} ${formatDuration(duration)} ${CHARS.separator} in:${Math.ceil(tokensIn / 4)} ${CHARS.separator} out:${Math.ceil(tokensOut / 4)}`,
     ),
   );
 };
@@ -69,7 +70,7 @@ export const runCLI = async (
     recordStats(startTime, client, session, fullResponse, statsDB);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error(red(`✗ ${message}`));
+    logger.error(red(`✗ ${message}`));
     process.exit(1);
   }
 };

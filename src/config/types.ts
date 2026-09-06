@@ -2,6 +2,19 @@ export interface ModelConfig {
   provider: string;
   api_key: string;
   base_url: string;
+  model?: string;
+  temperature?: number;
+  top_p?: number;
+  max_tokens?: number;
+  context_window?: number;
+}
+
+export type ModelTier = "light" | "medium" | "heavy";
+
+export interface AgentTiers {
+  light?: string;
+  medium?: string;
+  heavy?: string;
 }
 
 export interface UserConfig {
@@ -13,6 +26,7 @@ export interface UserConfig {
   show_tool_result: boolean;
   system_prompt_append?: string;
   guidelines?: string[];
+  agent_tiers?: AgentTiers;
 }
 
 export interface ProjectConfig {
@@ -24,6 +38,7 @@ export interface ProjectConfig {
   show_tool_result?: boolean;
   system_prompt_append?: string;
   guidelines?: string[];
+  agent_tiers?: AgentTiers;
 }
 
 export type ToolPermissionState = "approve_once" | "approve_always" | "deny";
@@ -44,6 +59,7 @@ export interface ResolvedConfig {
   model: ModelConfig;
   models: Record<string, ModelConfig>;
   defaultModelName: string;
+  agentTiers: AgentTiers;
   maxParallelAgents: number;
   agentBlockPrompt: boolean;
   sandboxPaths: string[];

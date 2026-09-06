@@ -3,6 +3,7 @@ import { join, resolve, relative, isAbsolute } from "node:path";
 import { Glob } from "bun";
 import { isSensitivePath, getSensitivePathReason } from "../../config/sensitive-paths";
 import type { ToolResult } from "./types";
+import { logger } from "../../utils/logger";
 
 export interface FilesystemTool {
   read_file: (args: Record<string, unknown>) => Promise<ToolResult>;
@@ -24,7 +25,7 @@ export const createFilesystemTool = (options: FilesystemToolOptions = {}): Files
   const warnSensitive = (resolved: string): void => {
     if (isSensitivePath(resolved)) {
       const reason = getSensitivePathReason(resolved) ?? "sensitive path";
-      process.stderr.write(`⚠ Accessing sensitive path: ${resolved} (${reason})\n`);
+      logger.warn(`⚠ Accessing sensitive path: ${resolved} (${reason})`);
       onSensitivePath?.(resolved, reason);
     }
   };
