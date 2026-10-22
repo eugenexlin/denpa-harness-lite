@@ -23,6 +23,7 @@ import {
   type PanelLine,
   type PanelMode,
 } from "./panel";
+import { createMenu, type Menu } from "./menu";
 import { CHARS } from "../terminal/special-chars";
 import {
   formatDuration,
@@ -60,6 +61,7 @@ export const createRepl = (
   let pendingToolName: string | null = null;
   let pendingToolDef: InternalToolDefinition | null = null;
   let pendingToolArgs: Record<string, unknown> | null = null;
+  let activeMenu: Menu<unknown> | null = null;
 
   const outputBuffer = createOutputBuffer();
 
@@ -97,6 +99,10 @@ export const createRepl = (
   };
 
   const rerenderPanel = (): void => {
+    if (activeMenu?.isOpen()) {
+      outputBuffer.setPanel(activeMenu.render());
+      return;
+    }
     const modelInfo = modelCache.getModelInfo(client.getModel());
     const panelLines = renderPanel({
       mode: panelMode,
@@ -155,6 +161,51 @@ export const createRepl = (
       }
     },
   });
+
+  const openMenu = <T>(menu: Menu<T>): void => {
+    activeMenu = menu as Menu<unknown>;
+    inputManager.supressInput();
+    menu.open();
+    rerenderPanel();
+  };
+
+  const closeMenu = (): void => {
+    activeMenu = null;
+    inputManager.unsupressInput();
+    rerenderPanel();
+  };
+
+  const openModelMenu = (): void => {
+    const items = Object.entries(config.models).map(([alias, cfg]) => ({
+      label: alias,
+      value: alias,
+      description: cfg.model,
+    }));
+    if (items.length === 0) {
+      outputBuffer.scroll("No models configured.\n");
+      return;
+    }
+    const currentAlias = client.getModel();
+    const initialIndex = Math.max(
+      0,
+      items.findIndex((i) => i.value === currentAlias),
+    );
+    const menu = createMenu<string>({
+      title: "Select model",
+      items,
+      initialIndex,
+      onSelect: (alias) => {
+        client.updateModel(alias);
+        closeMenu();
+        outputBuffer.scroll(`Model set to: ${alias}\n`);
+      },
+      onCancel: () => {
+        closeMenu();
+        outputBuffer.scroll("Model selection cancelled.\n");
+      },
+    });
+    openMenu(menu);
+  };
 
   const slashCommands = new Map<string, (args: string) => Promise<string>>();
   const slashCommandDescriptions = new Map<string, string>([
@@ -231,11 +282,22 @@ export const createRepl = (
 
   const registerSlashCommands = (): void => {
     slashCommands.set("model", async (args) => {
-      if (!args.trim()) {
-        return "Usage: /model <model-name>";
+      const name = args.trim();
+      if (!name) {
+        openModelMenu();
+        return "";
       }
-      client.updateModel(args.trim());
-      return `Model set to: ${args.trim()}`;
+      if (!config.models[name]) {
+        const available = Object.keys(config.models);
+        return (
+          `Unknown model '${name}'.` +
+          (available.length > 0
+            ? `\nAvailable models:\n${available.map((m) => `  ${m}`).join("\n")}\nRun /model to pick one.`
+            : "\nNo models configured.")
+        );
+      }
+      client.updateModel(name);
+      return `Model set to: ${name}`;
     });
 
     slashCommands.set("clear", async () => {
